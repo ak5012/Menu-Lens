@@ -1,0 +1,61 @@
+id,split,chain,cuisine,price_tier,archetype,item_name,menu_description,listed_price_usd,candidate_kcal_UNVERIFIED,true_kcal,source_row,source_url,retrieved_on,verified
+cmg-chicken-bowl,test,chipotle,mexican,1,bowl,Chicken Burrito Bowl,"White rice, black beans, chicken, fresh tomato salsa, cheese",,700,,,,,no
+cmg-steak-burrito,test,chipotle,mexican,1,burrito,Steak Burrito,"Flour tortilla, white rice, pinto beans, steak, cheese, sour cream",,1000,,,,,no
+cmg-barbacoa-salad,val,chipotle,mexican,1,salad,Barbacoa Salad,"Supergreens lettuce blend, barbacoa, fajita veggies, tomato salsa",,400,,,,,no
+cmg-carnitas-tacos,test,chipotle,mexican,1,taco,Carnitas Tacos,"Three soft corn tortillas, carnitas, tomato salsa, cheese",,620,,,,,no
+cmg-sofritas-bowl,train,chipotle,mexican,1,bowl,Sofritas Bowl,"Brown rice, black beans, sofritas, corn salsa, guacamole",,760,,,,,no
+cmg-chips-guac,test,chipotle,mexican,1,side,Chips & Guacamole,,,770,,,,,no
+cmg-queso-side,train,chipotle,mexican,1,side,Side of Queso Blanco,,,240,,,,,no
+cmg-veggie-bowl,val,chipotle,mexican,1,bowl,Veggie Bowl,"White rice, black beans, fajita veggies, guacamole, tomato salsa",,650,,,,,no
+cmg-chicken-quesadilla,test,chipotle,mexican,1,fried,Chicken Quesadilla,"Flour tortilla, monterey jack cheese, chicken",,930,,,,,no
+cmg-chips-salsa,test,chipotle,mexican,1,side,Chips & Fresh Tomato Salsa,,,565,,,,,no
+cmg-steak-quesadilla,val,chipotle,mexican,1,fried,Steak Quesadilla,"Flour tortilla, monterey jack cheese, steak",,940,,,,,no
+cmg-chicken-salad,train,chipotle,mexican,1,salad,Chicken Salad,"Supergreens lettuce blend, chicken, fajita veggies, chipotle-honey vinaigrette",,480,,,,,no
+tcf-chicken-madeira,test,cheesecake-factory,american,3,grilled,Chicken Madeira,Sauteed chicken breast topped with fresh asparagus and melted mozzarella cheese. Covered with fresh mushroom madeira sauce and served with mashed potatoes,,1450,,,,,no
+tcf-louisiana-pasta,test,cheesecake-factory,american,3,pasta,Louisiana Chicken Pasta,"Crispy parmesan chicken served over bowtie pasta with mushrooms, peppers and onions in a spicy new orleans sauce",,2200,,,,,no
+tcf-avocado-eggrolls,test,cheesecake-factory,american,3,fried,Avocado Eggrolls,"Avocado, sun-dried tomato, red onion and cilantro fried in a crisp wrapper and served with a tamarind-cashew dipping sauce",,1490,,,,,no
+tcf-fried-mac,val,cheesecake-factory,american,3,fried,Fried Macaroni and Cheese,Crispy crumb-coated macaroni and cheese balls fried until golden brown and served over a creamy marinara sauce,,1570,,,,,no
+tcf-thai-lettuce-wraps,train,cheesecake-factory,american,3,shareable,Thai Lettuce Wraps,"Satay chicken strips, carrots, bean sprouts, coconut curry noodles and lettuce leaves with three delicious sauces",,1250,,,,,no
+tcf-original-cheesecake,test,cheesecake-factory,american,3,dessert,Original Cheesecake,A slice of our classic original cheesecake,,830,,,,,no
+tcf-shepherds-pie,train,cheesecake-factory,american,3,braised,Shepherd's Pie,"Ground beef, carrots, peas, zucchini and onions in a delicious mushroom gravy covered with a mashed potato-potato crust",,1450,,,,,no
+tcf-factory-burrito,val,cheesecake-factory,american,3,burrito,Factory Burrito Grande,"A huge burrito filled with chicken, cheese, rice and beans. Topped with salsa verde, sour cream and guacamole",,1950,,,,,no
+tcf-chicken-costoletta,test,cheesecake-factory,american,3,fried,Crispy Chicken Costoletta,Crispy coated chicken breast lightly fried and topped with a lemon sauce. Served with mashed potatoes and fresh asparagus,,1840,,,,,no
+tcf-chicken-bellagio,val,cheesecake-factory,american,3,pasta,Chicken Bellagio,"Crispy coated chicken breast over angel hair pasta with a basil cream sauce, prosciutto and arugula",,1620,,,,,no
+tcf-miso-salmon,train,cheesecake-factory,american,3,grilled,Miso Salmon,"Fresh miso marinated salmon served with snow peas, white rice and a delicious miso sauce",,1440,,,,,no
+tcf-skinny-salmon,test,cheesecake-factory,american,3,grilled,SkinnyLicious Grilled Salmon,Served with asparagus and a green salad with lemon vinaigrette,,560,,,,,no
+og-chicken-alfredo,test,olive-garden,italian,2,pasta,Chicken Alfredo,Grilled chicken served over fettuccine tossed with our signature alfredo sauce,,1560,,,,,no
+og-tour-of-italy,test,olive-garden,italian,2,pasta,Tour of Italy,"Homemade lasagna, lightly breaded chicken parmigiana and creamy fettuccine alfredo",,1500,,,,,no
+og-lasagna-classico,val,olive-garden,italian,2,pasta,Lasagna Classico,"Layers of pasta, meat sauce, ricotta, mozzarella, parmesan and romano cheese",,930,,,,,no
+og-zuppa-toscana,test,olive-garden,italian,2,soup,Zuppa Toscana,"Spicy italian sausage, russet potatoes and kale in a light cream broth",,220,,,,,no
+og-minestrone,train,olive-garden,italian,2,soup,Minestrone,"Fresh vegetables, beans and pasta in a light tomato broth",,110,,,,,no
+og-breadstick,test,olive-garden,italian,2,bread,Breadstick,Warm garlic breadstick,,140,,,,,no
+og-chicken-parm,val,olive-garden,italian,2,fried,Chicken Parmigiana,"Lightly breaded chicken topped with marinara and melted italian cheeses, served with spaghetti",,1060,,,,,no
+og-fettuccine-alfredo,test,olive-garden,italian,2,pasta,Fettuccine Alfredo,Fettuccine tossed in our signature alfredo sauce,,1310,,,,,no
+og-shrimp-scampi,train,olive-garden,italian,2,pasta,Shrimp Scampi,"Sauteed shrimp, asparagus and tomatoes tossed with angel hair in a garlic sauce",,510,,,,,no
+og-eggplant-parm,val,olive-garden,italian,2,fried,Eggplant Parmigiana,"Lightly breaded eggplant topped with marinara and melted italian cheeses, served with spaghetti",,850,,,,,no
+og-house-salad,test,olive-garden,italian,2,salad,House Salad with Dressing,"Garden greens, tomatoes, olives, croutons and italian dressing",,150,,,,,no
+og-five-cheese-ziti,train,olive-garden,italian,2,pasta,Five Cheese Ziti al Forno,Ziti baked in a five cheese marinara sauce with an italian cheese and breadcrumb topping,,1050,,,,,no
+pan-broccoli-cheddar,test,panera,american,2,soup,Broccoli Cheddar Soup (Bowl),"Chopped broccoli, shredded carrots and select seasonings in a cheese sauce",,,420,Broccoli Cheddar - Bowl / 1 1/2 Cups,https://www.panerabread.com/content/dam/panerabread/documents/c6-26-nutrition-guide.pdf,2026-09-14,yes
+pan-turkey-bravo,test,panera,american,2,sandwich,Bacon Turkey Bravo Sandwich (Whole),"Oven-roasted turkey, applewood-smoked bacon, smoked gouda, lettuce, tomato and signature sauce on tomato basil bread",,,860,Bacon Turkey Bravo Sandwich on Tomato Basil - Whole / 1 Sandwich,https://www.panerabread.com/content/dam/panerabread/documents/c6-26-nutrition-guide.pdf,2026-09-14,yes
+pan-caesar-salad,val,panera,american,2,salad,Caesar Salad (Whole),"Romaine, parmesan, croutons and caesar dressing",,,530,Caesar Salad - Whole / 1 Salad,https://www.panerabread.com/content/dam/panerabread/documents/c6-26-nutrition-guide.pdf,2026-09-14,yes
+pan-mac-cheese,test,panera,american,2,pasta,Mac & Cheese (Bowl),Shell pasta in a rich cheese sauce made with aged white cheddar,,,980,Mac & Cheese - Bowl / About 2 Cups,https://www.panerabread.com/content/dam/panerabread/documents/c6-26-nutrition-guide.pdf,2026-09-14,yes
+pan-chipotle-chicken,test,panera,american,2,sandwich,Chipotle Chicken Avo Melt (Whole),"Smoked pulled chicken, smoked gouda, avocado, cilantro and chipotle sauce on black pepper focaccia",,,1000,Chipotle Chicken Avo Melt on Black Pepper Focaccia Round - Whole / 1 Sandwich,https://www.panerabread.com/content/dam/panerabread/documents/c6-26-nutrition-guide.pdf,2026-09-14,yes
+pan-greek-salad,train,panera,american,2,salad,Greek Salad (Whole),"Romaine, feta, kalamata olives, tomatoes, red onion and greek dressing",,,630,Greek Salad - Whole / 1 Salad,https://www.panerabread.com/content/dam/panerabread/documents/c6-26-nutrition-guide.pdf,2026-09-14,yes
+pan-ten-veg-soup,val,panera,american,2,soup,Homestyle Chicken Noodle Soup (Bowl),"Chicken, egg noodles, carrots, celery and onion in a seasoned chicken broth",,,180,Homestyle Chicken Noodle Soup - Bowl / 1 bowl,https://www.panerabread.com/content/dam/panerabread/documents/c6-26-nutrition-guide.pdf,2026-09-14,yes
+pan-cinnamon-bagel,test,panera,american,2,bread,Cinnamon Crunch Bagel,Our signature bagel with cinnamon and crunch topping,,,430,Cinnamon Crunch Bagel / 1 Bagel,https://www.panerabread.com/content/dam/panerabread/documents/c6-26-nutrition-guide.pdf,2026-09-14,yes
+pan-turkey-chili,train,panera,american,2,soup,Vegetarian Black Bean Soup (Cup),"Black beans, onion, garlic, cumin and lime in a vegetarian broth",,,90,Vegetarian Black Bean Soup - Cup / 1 Cup,https://www.panerabread.com/content/dam/panerabread/documents/c6-26-nutrition-guide.pdf,2026-09-14,yes
+pan-fuji-apple-chicken,val,panera,american,2,salad,Fuji Apple Chicken Salad (Whole),"Chicken, apple chips, gorgonzola, pecans, tomatoes and greens with white balsamic apple vinaigrette",,,710,Fuji Apple Chicken Salad - Whole / 1 Salad,https://www.panerabread.com/content/dam/panerabread/documents/c6-26-nutrition-guide.pdf,2026-09-14,yes
+pan-steak-panini,test,panera,american,2,sandwich,Ciabatta Cheesesteak (Whole),"Seared steak, white cheddar, pickled onions and horseradish sauce on artisan ciabatta",,,1160,Ciabatta Cheesesteak on Ciabatta - Whole / 1 Sandwich,https://www.panerabread.com/content/dam/panerabread/documents/c6-26-nutrition-guide.pdf,2026-09-14,yes
+pan-cobb-chicken,train,panera,american,2,salad,Green Goddess Cobb Salad with Chicken (Whole),"Chicken, bacon, egg, avocado, tomatoes and greens with green goddess dressing",,,580,Green Goddess Cobb Salad with Chicken - Whole / 1 Salad,https://www.panerabread.com/content/dam/panerabread/documents/c6-26-nutrition-guide.pdf,2026-09-14,yes
+shk-shackburger,test,shake-shack,american,2,burger,ShackBurger,"Cheeseburger topped with lettuce, tomato and ShackSauce",,530,,,,,no
+shk-smokeshack,test,shake-shack,american,2,burger,SmokeShack,"Cheeseburger topped with applewood-smoked bacon, chopped cherry peppers and ShackSauce",,640,,,,,no
+shk-shroom-burger,val,shake-shack,american,2,fried,Shroom Burger,"Crisp-fried portobello mushroom filled with melted muenster and cheddar, topped with lettuce, tomato and ShackSauce",,590,,,,,no
+shk-chicken-shack,test,shake-shack,american,2,fried,Chicken Shack,"Crispy chicken breast with lettuce, pickles and buttermilk herb mayo",,590,,,,,no
+shk-fries,test,shake-shack,american,2,side,Crinkle Cut Fries,,,420,,,,,no
+shk-cheese-fries,train,shake-shack,american,2,side,Cheese Fries,Crinkle cut fries topped with our cheese sauce,,590,,,,,no
+shk-vanilla-shake,test,shake-shack,american,2,shake,Vanilla Shake,Hand-spun vanilla frozen custard,,610,,,,,no
+shk-hot-dog,train,shake-shack,american,2,sandwich,Shack-cago Dog,"All-beef hot dog topped with relish, onion, cucumber, pickle, tomato, sport pepper, celery salt and mustard",,390,,,,,no
+shk-double-shackburger,val,shake-shack,american,2,burger,Double ShackBurger,"Two cheeseburger patties topped with lettuce, tomato and ShackSauce",,770,,,,,no
+shk-avocado-bacon,test,shake-shack,american,2,burger,Avocado Bacon Burger,"Cheeseburger topped with avocado, applewood-smoked bacon and ShackSauce",,670,,,,,no
+shk-blackwhite-shake,train,shake-shack,american,2,shake,Black & White Shake,Hand-spun vanilla frozen custard with chocolate,,660,,,,,no
+shk-cheese-dog,val,shake-shack,american,2,sandwich,Cheese Dog,All-beef hot dog topped with our cheese sauce,,420,,,,,no
