@@ -23,7 +23,8 @@ from pathlib import Path
 
 REQUIRED_COLUMNS = [
     "id", "split", "chain", "cuisine", "price_tier", "archetype",
-    "item_name", "menu_description", "listed_price_usd",
+    "item_name", "menu_description", "format", "generic_name",
+    "generic_description", "listed_price_usd",
     "candidate_kcal_UNVERIFIED", "true_kcal", "source_row", "source_url",
     "retrieved_on",
     "verified",
@@ -31,6 +32,16 @@ REQUIRED_COLUMNS = [
 
 SPLITS = {"train", "val", "test"}
 VERIFIED = {"yes", "no"}
+FORMATS = {"fast-casual", "casual-dining", "fine-dining", "quick-service"}
+
+# Terms that identify a specific chain. The generic_* fields feed the hidden-name
+# benchmark run, so none of these may appear there. "Chipotle" is deliberately
+# absent: it is also a pepper, and appears legitimately in dish names.
+BRAND_TERMS = [
+    "shake shack", "shack", "olive garden", "cheesecake factory", "panera",
+    "skinnylicious", "supergreens", "sofritas", "tour of italy", "toscana",
+    "classico", "bravo", "costoletta", "bellagio", "louisiana chicken",
+]
 ARCHETYPES = {
     "bowl", "burrito", "taco", "salad", "soup", "pasta", "sandwich", "burger",
     "fried", "grilled", "braised", "side", "bread", "dessert", "shake",
@@ -74,6 +85,17 @@ def check(rows: list[dict[str, str]]) -> tuple[list[str], list[str]]:
             errors.append(f"{where}: verified must be yes or no")
         if not row["item_name"].strip():
             errors.append(f"{where}: empty item_name")
+        if row["format"] not in FORMATS:
+            errors.append(f"{where}: format must be one of {sorted(FORMATS)}")
+        if not row["generic_name"].strip():
+            errors.append(f"{where}: empty generic_name")
+        if row["menu_description"].strip() and not row["generic_description"].strip():
+            errors.append(f"{where}: has a menu_description but no generic_description")
+        generic = f"{row['generic_name']} {row['generic_description']}".lower()
+        leaked = [t for t in BRAND_TERMS if t in generic]
+        if leaked:
+            errors.append(f"{where}: generic fields name the chain via {leaked} - "
+                          "the hidden-name run would leak the restaurant")
 
         tier = row["price_tier"].strip()
         if tier not in {"1", "2", "3", "4"}:

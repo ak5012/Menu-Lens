@@ -73,7 +73,7 @@ class Estimate(BaseModel):
     rationale: str
 
 
-def build_prompt(row: dict[str, str]) -> str:
+def build_prompt(row: dict[str, str], hide_names: bool = False) -> str:
     """Menu-visible fields only.
 
     The label lives in `true_kcal` and the recalled hint in
@@ -81,10 +81,16 @@ def build_prompt(row: dict[str, str]) -> str:
     turns coverage into a measurement of nothing.
     """
     tier = "$" * int(row["price_tier"])
+    if hide_names:
+        name, desc = row["generic_name"], row["generic_description"]
+        restaurant = f"a {row['format']} {row['cuisine']} restaurant"
+    else:
+        name, desc = row["item_name"], row["menu_description"]
+        restaurant = row["chain"].replace("-", " ").title()
     lines = [
-        f"Item: {row['item_name']}",
-        f"Description: {row['menu_description'] or '(none printed on the menu)'}",
-        f"Restaurant: {row['chain'].replace('-', ' ').title()}",
+        f"Item: {name}",
+        f"Description: {desc or '(none printed on the menu)'}",
+        f"Restaurant: {restaurant}",
         f"Cuisine: {row['cuisine']}",
         f"Price tier: {tier}",
     ]
@@ -93,12 +99,13 @@ def build_prompt(row: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def estimate_one(client, model: str, row: dict[str, str], max_tokens: int) -> dict:
+def estimate_one(client, model: str, row: dict[str, str], max_tokens: int,
+                 hide_names: bool = False) -> dict:
     response = client.messages.parse(
         model=model,
         max_tokens=max_tokens,
         system=SYSTEM,
-        messages=[{"role": "user", "content": build_prompt(row)}],
+        messages=[{"role": "user", "content": build_prompt(row, hide_names)}],
         output_format=Estimate,
     )
 
@@ -135,6 +142,8 @@ def main() -> int:
     ap.add_argument("--limit", type=int, help="stop after N items (smoke test)")
     ap.add_argument("--concurrency", type=int, default=4)
     ap.add_argument("--max-tokens", type=int, default=2000)
+    ap.add_argument("--hide-names", action="store_true",
+                    help="generic dish names, no restaurant name (see README)")
     args = ap.parse_args()
 
     with args.items.open(newline="", encoding="utf-8") as fh:
@@ -160,7 +169,7 @@ def main() -> int:
     def run(row: dict[str, str]) -> None:
         nonlocal done
         try:
-            result = estimate_one(client, args.model, row, args.max_tokens)
+            result = estimate_one(client, args.model, row, args.max_tokens, args.hide_names)
         except anthropic.APIStatusError as exc:
             with lock:
                 failures.append((row["id"], f"{exc.status_code} {exc.__class__.__name__}"))
