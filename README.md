@@ -8,39 +8,85 @@ A ruler with wrong markings is worse than no ruler, so the harness is built to
 make it structurally impossible to score against a number nobody checked.
 
 ```
-items.csv      60 candidate rows, none verified yet
-validate.py    schema + provenance checks, stratification report
+items.csv      60 rows; 58 verified against official nutrition guides, 2 pending
+validate.py    schema + provenance + brand-leak checks, stratification report
 baseline.py    the ungrounded Claude baseline (Phase 1, step 2)
 score.py       the §10 exit bar
 ```
 
 ---
 
-## The state this ships in
+## Verification status
 
-**Every row has `true_kcal` empty and `verified=no`.** That is deliberate, not
-unfinished work.
+| Chain | Verified | Source |
+|---|---|---|
+| Panera | 12 / 12 | US Nutrition Guide, effective 6/17/2026 |
+| Olive Garden | 12 / 12 | US Nutrition Information PDF, revision US_083126, dinner portions |
+| Cheesecake Factory | 12 / 12 | Nutritional Guide (c)2026 TCF Co., full-size portions |
+| Shake Shack | 12 / 12 | Nutrition & Allergen Information, 1.6.26, standalone items |
+| Chipotle | 10 / 12 | US Nutrition Facts, 3-2025 — per-ingredient, summed (see `source_row`) |
 
-The 60 rows carry real chain menu items, real menu descriptions, and a
-`candidate_kcal_UNVERIFIED` column holding a recalled ballpark figure. Those
-recalled figures are **not labels and must never be used as labels** — chains
-reformulate, portions change, and being 80 kcal off on a benchmark item
-silently corrupts every coverage number you compute afterwards.
+**Still pending:** both Chipotle quesadillas. The chart has no adult quesadilla
+tortilla or cheese portion, so there is nothing published to sum.
 
-`validate.py` refuses any row that has a `true_kcal` without a `source_url` and
-a `retrieved_on` date. `score.py` ignores every row that isn't verified. You
-cannot accidentally measure against a guess.
+Verification changed the set as well as filling it. Four items were discontinued
+and replaced with current ones (three at Panera; Cheesecake Factory's Factory
+Burrito Grande became its Breakfast Burrito). Recalled figures were often far
+off — Panera's Greek Salad is 630 kcal, not 380; Cheesecake Factory's Avocado
+Eggrolls are 930, not 1490 — which is exactly why none of them were used as labels.
 
-The candidate column has exactly one job: when you pull the published figure and
-it lands more than 25% away from the candidate, you have probably matched the
-wrong menu item. `validate.py` warns on that.
+Two traps worth knowing if you add rows: the Cheesecake Factory and Olive Garden
+guides list lunch and dinner sizes of the same dish, and Shake Shack's guide
+lists meal ranges (burger + fries + drink, marked `*`) next to the standalone
+items. Search snippets quote the meal range as if it were the burger.
+
+Unverified rows carry a `candidate_kcal_UNVERIFIED` ballpark figure. It is
+**not a label and must never be used as one** — chains reformulate, portions
+change, and being 80 kcal off on a benchmark item silently corrupts every
+coverage number you compute afterwards. Its one job is catching a wrong-item
+match: if the published figure lands more than 25% away, `validate.py` warns.
+Once a row is verified, clear the candidate.
+
+`validate.py` refuses any row that has a `true_kcal` without `source_url`,
+`source_row`, and `retrieved_on`. `score.py` ignores every row that isn't
+verified. You cannot accidentally measure against a guess.
+
+---
+
+## Named vs hidden-name runs
+
+These chains publish their calorie counts, so a model may have memorised them
+during training. A benchmark that shows it "Zuppa Toscana at Olive Garden" can
+end up measuring recall instead of estimation — and the product is for
+restaurants whose numbers nobody has published.
+
+Every row therefore carries three extra columns:
+
+| Column | Example | Purpose |
+|---|---|---|
+| `format` | `casual-dining` | Kept in both runs: the extension will know this about a real restaurant |
+| `generic_name` | `Sausage, Potato and Kale Soup` | Replaces branded dish names |
+| `generic_description` | `ShackSauce` → `special sauce` | Replaces branded ingredient terms |
+
+Run both and compare:
+
+```bash
+python baseline.py --split test --hide-names -o preds-hidden.jsonl
+python baseline.py --split test              -o preds-named.jsonl
+```
+
+**The hidden-name score is the headline.** The named score is only there for
+contrast: a large gap means the named run is measuring memory. `validate.py`
+rejects any generic field containing a chain or brand term, so a leak can't
+slip back in when rows are added.
 
 ---
 
 ## Verification pass
 
 For each row, open the chain's published nutrition information, find the item,
-and fill four columns: `true_kcal`, `source_url`, `retrieved_on`, `verified=yes`.
+and fill five columns: `true_kcal`, `source_row` (the exact line read, size
+included), `source_url`, `retrieved_on`, `verified=yes`.
 
 Start points (confirm these still resolve — chains move these pages):
 
@@ -103,8 +149,8 @@ The set is built to make failures diagnosable rather than just counted.
   benchmark's clothes.
 
 To reach the 120 rows the design doc calls for, extend along the same axes —
-the gaps worth filling first are breakfast items, shareable appetizers, and
-tier-4 restaurants, none of which are represented yet.
+the gaps worth filling first are breakfast items (one so far), shareable
+appetizers, and tier-4 restaurants (none yet).
 
 ---
 
