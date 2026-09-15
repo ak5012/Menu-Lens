@@ -1,6 +1,7 @@
-"""Calorie estimates for menu items from a pre-trained LLM (Claude).
+"""Calorie estimates for menu items from a pre-trained LLM.
 
-No training, no retrieval corpus: one API call per item. The model supplies the
+No training, no retrieval corpus: one API call per item. Which model answers
+(Gemini, Claude, or a free mock) is chosen in providers.py. The model supplies the
 food knowledge; this module supplies the parts a model can't be trusted to do on
 its own:
 
@@ -18,6 +19,7 @@ Usage as a library:
 Usage from the shell:
 
     python estimator.py "Chicken Alfredo" --restaurant "Olive Garden" --cuisine italian --tier 2
+    python estimator.py "Chicken Alfredo" --provider mock      # free, fake numbers
 """
 
 from __future__ import annotations
@@ -27,7 +29,8 @@ import json
 import sys
 from dataclasses import asdict, dataclass, field
 
-DEFAULT_MODEL = "claude-opus-5"
+from providers import (PROVIDERS, Provider, ProviderAuthError, ProviderError,
+                       ProviderModelUnavailable, ProviderRateLimited, Suppressed, get_provider)
 
 # Minimum half-width of the range, as a fraction of the midpoint, per band.
 MIN_HALF_WIDTH = {"high": 0.12, "medium": 0.20, "low": 0.33}
@@ -98,10 +101,6 @@ class Estimate:
     widened: bool = False  # True when the model's range was narrower than its band allows
 
 
-class Suppressed(Exception):
-    """The item can't be given a range worth acting on."""
-
-
 def enforce_width(low: int, high: int, midpoint: int, band: str) -> tuple[int, int, bool]:
     """Widen a range to its band's minimum; raise Suppressed past the ceiling."""
     if low > high:
@@ -120,46 +119,29 @@ def enforce_width(low: int, high: int, midpoint: int, band: str) -> tuple[int, i
 
 
 class Estimator:
-    def __init__(self, model: str = DEFAULT_MODEL, effort: str | None = None, client=None):
-        import anthropic  # imported here so enforce_width is usable without the SDK
-
-        self.model = model
-        self.effort = effort
-        self.client = client or anthropic.Anthropic()
+    def __init__(self, provider: Provider | str | None = None, model: str | None = None):
+        self.provider = provider if isinstance(provider, Provider) else get_provider(provider, model)
 
     def estimate(self, item: MenuItem) -> Estimate:
-        output_config: dict = {"format": {"type": "json_schema", "schema": SCHEMA}}
-        if self.effort:
-            output_config["effort"] = self.effort
+        data, served_by = self.provider.generate(SYSTEM, item.to_prompt(), SCHEMA)
+        try:
+            low, high, midpoint, band = (int(data["low"]), int(data["high"]),
+                                         int(data["midpoint"]), data["band"])
+            portion, rationale = int(data["portion_assumption_g"]), str(data["rationale"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProviderError(f"model answer is missing or has malformed fields: {data!r}") from exc
+        if band not in MIN_HALF_WIDTH:
+            raise ProviderError(f"model returned an unknown confidence band {band!r}")
 
-        response = self.client.beta.messages.create(
-            model=self.model,
-            max_tokens=16000,
-            system=SYSTEM,
-            messages=[{"role": "user", "content": item.to_prompt()}],
-            output_config=output_config,
-            # If a safety classifier declines, re-run on Anthropic's recommended fallback model.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-        )
-
-        if response.stop_reason == "refusal":
-            raise Suppressed("the model declined this request")
-        if response.stop_reason == "max_tokens":
-            raise RuntimeError("response was cut off at max_tokens")
-
-        text = "".join(block.text for block in response.content if block.type == "text")
-        data = json.loads(text)
-        low, high, widened = enforce_width(data["low"], data["high"], data["midpoint"], data["band"])
-
+        low, high, widened = enforce_width(low, high, midpoint, band)
         return Estimate(
             low=low,
             high=high,
-            midpoint=min(max(data["midpoint"], low), high),
-            band=data["band"],
-            portion_assumption_g=data["portion_assumption_g"],
-            rationale=data["rationale"],
-            model=response.model,  # the model that actually served it, fallback included
+            midpoint=min(max(midpoint, low), high),
+            band=band,
+            portion_assumption_g=portion,
+            rationale=rationale,
+            model=served_by,
             widened=widened,
         )
 
@@ -173,18 +155,28 @@ def main() -> int:
     ap.add_argument("--tier", type=int, choices=[1, 2, 3, 4])
     ap.add_argument("--section", default="")
     ap.add_argument("--sourcing", nargs="*", default=[])
-    ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
+    ap.add_argument("--provider", choices=sorted(PROVIDERS),
+                    help="gemini (free tier, default), anthropic (paid), mock (fake, free)")
+    ap.add_argument("--model", help="override the provider's default model")
     ap.add_argument("--json", action="store_true", help="print raw JSON")
     args = ap.parse_args()
 
     item = MenuItem(args.name, args.description, args.restaurant, args.cuisine,
                     args.tier, args.section, args.sourcing)
     try:
-        est = Estimator(args.model, args.effort).estimate(item)
+        est = Estimator(args.provider, args.model).estimate(item)
     except Suppressed as exc:
         print(f"No estimate: {exc}")
         return 2
+    except ProviderAuthError as exc:
+        print(f"The API key was rejected or is missing: {exc}")
+        return 1
+    except ProviderModelUnavailable as exc:
+        print(f"That model isn't available to this account; choose another with --model: {exc}")
+        return 1
+    except ProviderRateLimited as exc:
+        print(f"Rate limit or free quota used up; try again later: {exc}")
+        return 1
 
     if args.json:
         print(json.dumps(asdict(est), indent=2))

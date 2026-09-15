@@ -10,7 +10,7 @@ make it structurally impossible to score against a number nobody checked.
 ```
 items.csv      60 rows; 58 verified against official nutrition guides, 2 pending
 validate.py    schema + provenance + brand-leak checks, stratification report
-baseline.py    the ungrounded Claude baseline (Phase 1, step 2)
+baseline.py    original Claude-only runner (use ../estimator/bench.py instead)
 score.py       the §10 exit bar
 ```
 
@@ -70,9 +70,10 @@ Every row therefore carries three extra columns:
 
 Run both and compare:
 
-```bash
-python baseline.py --split test --hide-names -o preds-hidden.jsonl
-python baseline.py --split test              -o preds-named.jsonl
+```powershell
+cd ..\estimator
+python bench.py --split test --hide-names -o preds-hidden.jsonl
+python bench.py --split test              -o preds-named.jsonl
 ```
 
 **The hidden-name score is the headline.** The named score is only there for
@@ -119,7 +120,7 @@ python validate.py
 
 ## The label-leakage rule
 
-`baseline.py` builds its prompt from menu-visible fields only: `item_name`,
+`../estimator/bench.py` and `baseline.py` build their prompts from menu-visible fields only: `item_name`,
 `menu_description`, `chain`, `cuisine`, `price_tier`, `listed_price_usd`.
 
 `true_kcal` and `candidate_kcal_UNVERIFIED` must never reach a model. This also
@@ -156,20 +157,20 @@ appetizers, and tier-4 restaurants (none yet).
 
 ## Running it
 
-```bash
-pip install -r requirements.txt
+```powershell
+pip install -r ..\estimator\requirements.txt
 python validate.py                                   # always start here
 
-export ANTHROPIC_API_KEY=...                         # or: ant auth login
-python baseline.py --split test --limit 5            # smoke test, ~5 calls
-python baseline.py --split test                      # full run
-python score.py predictions-baseline.jsonl --split test
+$env:GEMINI_API_KEY = "..."                          # free key from aistudio.google.com
+cd ..\estimator
+python bench.py --hide-names --limit 2 -o smoke.jsonl
+python bench.py --hide-names -o preds-hidden.jsonl
+python ..\benchmark\score.py preds-hidden.jsonl ..\benchmark\items.csv
 ```
 
-`baseline.py` defaults to `claude-opus-5` — the strongest ungrounded case,
-which is the honest thing for the retrieval pipeline to have to beat. Sweep with
-`--model claude-sonnet-5` to see what the cheaper production candidate gives up.
-Both print measured cost per item at the end.
+`../estimator/bench.py` is the runner to use: it tests the same code path the product
+serves, and switches model with `--provider` (gemini, anthropic, mock). `baseline.py` in
+this folder is the original Claude-only runner, kept for reference.
 
 ---
 

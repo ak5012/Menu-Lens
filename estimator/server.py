@@ -1,25 +1,41 @@
-"""HTTP endpoint for the browser extension and upload flow.
+"""HTTP endpoint for the browser extension and the upload web app.
 
+    $env:MENULENS_PROVIDER = "gemini"          # or anthropic, or mock (free, fake numbers)
+    $env:GEMINI_API_KEY = "..."                # not needed for mock
     uvicorn server:app --port 8000
 
     curl -X POST localhost:8000/v1/estimate -H "Content-Type: application/json" -d '{
       "item": {"name": "Chicken Alfredo", "description": "Grilled chicken over fettuccine alfredo"},
       "restaurant": {"name": "Olive Garden", "cuisine": "italian", "price_tier": 2}
     }'
+
+Browsers only let a web page call this server if its address is allowed. List the
+allowed pages in MENULENS_ALLOWED_ORIGINS, comma-separated, for example the Lovable
+preview URL. The extension doesn't need this: extensions call servers they have
+host permission for directly.
 """
 
 from __future__ import annotations
 
+import os
 import uuid
 
-import anthropic
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from estimator import DEFAULT_MODEL, Estimator, MenuItem, Suppressed
+from estimator import Estimator, MenuItem
+from providers import (ProviderAuthError, ProviderError, ProviderModelUnavailable,
+                       ProviderRateLimited, Suppressed)
 
-app = FastAPI(title="Menu Calorie Estimator")
-estimator = Estimator(DEFAULT_MODEL)
+app = FastAPI(title="MenuLens estimator")
+
+origins = [o.strip() for o in os.environ.get("MENULENS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+if origins:
+    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["POST"],
+                       allow_headers=["Content-Type"])
+
+estimator = Estimator()  # provider and model come from MENULENS_PROVIDER / MENULENS_MODEL
 
 
 class ItemIn(BaseModel):
@@ -40,6 +56,11 @@ class EstimateRequest(BaseModel):
     restaurant: RestaurantIn = RestaurantIn()
 
 
+@app.get("/health")
+def health() -> dict:
+    return {"ok": True, "provider": estimator.provider.name, "model": estimator.provider.model}
+
+
 @app.post("/v1/estimate")
 def estimate(req: EstimateRequest) -> dict:
     item = MenuItem(
@@ -55,9 +76,14 @@ def estimate(req: EstimateRequest) -> dict:
         est = estimator.estimate(item)
     except Suppressed as exc:
         raise HTTPException(422, {"code": "insufficient_signal", "message": str(exc)})
-    except anthropic.RateLimitError:
-        raise HTTPException(429, {"code": "rate_limited", "message": "Try again shortly."})
-    except (anthropic.APIStatusError, anthropic.APIConnectionError):
+    except ProviderRateLimited:
+        raise HTTPException(429, {"code": "rate_limited",
+                                  "message": "Too many estimates right now. Try again in a minute."})
+    except (ProviderAuthError, ProviderModelUnavailable):
+        # A server misconfiguration, not the user's fault: don't echo key details to the client.
+        raise HTTPException(503, {"code": "upstream_unavailable",
+                                  "message": "The estimation service isn't configured correctly."})
+    except ProviderError:
         raise HTTPException(503, {"code": "upstream_unavailable",
                                   "message": "The estimation model is unavailable. Try again."})
 
