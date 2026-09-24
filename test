@@ -1,0 +1,15 @@
+import random, datetime
+
+levels = ["INFO", "WARN", "ERROR", "DEBUG"]
+services = ["auth", "cart", "payments", "search", "inventory"]
+msgs = ["request handled", "cache miss", "timeout retrying",
+        "user session created", "db connection pooled", "invalid token"]
+
+start = datetime.datetime.now()
+with open("fake.log", "w") as f:
+    for i in range(50):
+        ts = start + datetime.timedelta(seconds=i * random.randint(1, 5))
+        f.write(f"{ts:%Y-%m-%d %H:%M:%S} [{random.choice(levels)}] "
+                f"{random.choice(services)}: {random.choice(msgs)}\n")
+
+print("wrote fake.log")
