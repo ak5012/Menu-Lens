@@ -56,6 +56,10 @@ class ProviderTimeout(ProviderError):
     """The model took longer than the time limit to answer."""
 
 
+class ProviderBusy(ProviderError):
+    """A temporary server-side failure (overloaded, 5xx). Usually worth retrying shortly."""
+
+
 class Suppressed(Exception):
     """The item can't be given a range worth acting on (declined, or too vague)."""
 
@@ -118,6 +122,8 @@ class GeminiProvider(Provider):
                     retry_after=float(delay.group(1)) if delay else None,
                     daily="PerDay" in raw,
                 ) from exc
+            if exc.code and exc.code >= 500:
+                raise ProviderBusy(f"{exc.code} {message}") from exc
             raise ProviderError(f"{exc.code} {message}") from exc
         except self._httpx.TimeoutException as exc:
             raise ProviderTimeout("no answer within the time limit") from exc
@@ -163,7 +169,11 @@ class AnthropicProvider(Provider):
             raise ProviderModelUnavailable(str(exc)) from exc
         except a.RateLimitError as exc:
             raise ProviderRateLimited(str(exc)) from exc
-        except (a.APIStatusError, a.APIConnectionError) as exc:
+        except a.APIStatusError as exc:
+            if exc.status_code >= 500:  # includes 529 "overloaded"
+                raise ProviderBusy(str(exc)) from exc
+            raise ProviderError(str(exc)) from exc
+        except a.APIConnectionError as exc:
             raise ProviderError(str(exc)) from exc
 
         if response.stop_reason == "refusal":

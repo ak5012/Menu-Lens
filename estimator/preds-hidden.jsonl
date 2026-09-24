@@ -1,1 +1,19 @@
-
+{"id": "cmg-chicken-bowl", "low": 550, "high": 750, "midpoint": 650, "band": "high", "widened": false, "model": "gemini-3.6-flash", "seconds": 3.9}
+{"id": "cmg-steak-burrito", "low": 850, "high": 1150, "midpoint": 1000, "band": "high", "widened": false, "model": "gemini-3.6-flash", "seconds": 2.3}
+{"id": "cmg-carnitas-tacos", "low": 680, "high": 1020, "midpoint": 850, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 7.8}
+{"id": "cmg-chips-guac", "low": 640, "high": 960, "midpoint": 800, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 4.3}
+{"id": "cmg-chicken-quesadilla", "low": 650, "high": 900, "midpoint": 775, "band": "high", "widened": false, "model": "gemini-3.6-flash", "seconds": 3.9}
+{"id": "cmg-chips-salsa", "low": 480, "high": 650, "midpoint": 565, "band": "high", "widened": false, "model": "gemini-3.6-flash", "seconds": 5.6}
+{"id": "tcf-chicken-madeira", "low": 1080, "high": 1620, "midpoint": 1350, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 7.0}
+{"id": "tcf-louisiana-pasta", "low": 1400, "high": 2100, "midpoint": 1750, "band": "medium", "widened": false, "model": "gemini-3.6-flash", "seconds": 4.5}
+{"id": "tcf-avocado-eggrolls", "low": 850, "high": 1150, "midpoint": 1000, "band": "high", "widened": false, "model": "gemini-3.6-flash", "seconds": 5.5}
+{"id": "tcf-original-cheesecake", "low": 600, "high": 900, "midpoint": 750, "band": "medium", "widened": false, "model": "gemini-3.6-flash", "seconds": 8.8}
+{"id": "tcf-chicken-costoletta", "low": 880, "high": 1320, "midpoint": 1100, "band": "medium", "widened": false, "model": "gemini-3.6-flash", "seconds": 9.8}
+{"id": "tcf-skinny-salmon", "low": 440, "high": 660, "midpoint": 550, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 4.5}
+{"id": "og-chicken-alfredo", "low": 1150, "high": 1550, "midpoint": 1350, "band": "high", "widened": false, "model": "gemini-3.6-flash", "seconds": 7.8}
+{"id": "og-tour-of-italy", "low": 1240, "high": 1860, "midpoint": 1550, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 3.3}
+{"id": "og-zuppa-toscana", "low": 350, "high": 550, "midpoint": 450, "band": "medium", "widened": false, "model": "gemini-3.6-flash", "seconds": 8.7}
+{"id": "og-breadstick", "low": 105, "high": 185, "midpoint": 145, "band": "high", "widened": true, "model": "gemini-3.6-flash", "seconds": 3.1}
+{"id": "og-fettuccine-alfredo", "low": 880, "high": 1320, "midpoint": 1100, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 37.8}
+{"id": "og-house-salad", "low": 280, "high": 450, "midpoint": 365, "band": "high", "widened": false, "model": "gemini-3.6-flash", "seconds": 3.8}
+{"id": "pan-broccoli-cheddar", "low": 320, "high": 460, "midpoint": 390, "band": "high", "widened": false, "model": "gemini-3.6-flash", "seconds": 5.2}

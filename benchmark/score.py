@@ -43,6 +43,12 @@ EXIT_BAR = [
 
 
 def load_benchmark(path: Path, split: str | None) -> dict[str, dict]:
+    # split may be one name, several comma-separated ("train,val"), a set, or None for all.
+    if isinstance(split, str):
+        wanted = {s.strip() for s in split.split(",") if s.strip()}
+    else:
+        wanted = set(split) if split else set()
+
     with path.open(newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
 
@@ -52,7 +58,7 @@ def load_benchmark(path: Path, split: str | None) -> dict[str, dict]:
         if row["verified"] != "yes" or not row["true_kcal"].strip():
             skipped_unverified += 1
             continue
-        if split and row["split"] != split:
+        if wanted and row["split"] not in wanted:
             continue
         usable[row["id"]] = {
             "true_kcal": int(row["true_kcal"]),
@@ -80,6 +86,16 @@ def load_predictions(path: Path) -> dict[str, dict]:
             if "id" not in obj:
                 sys.exit(f"FATAL: {path}:{n} has no id")
             preds[obj["id"]] = obj
+
+    # A score describes one model. Mixing two in a file makes it describe neither.
+    models = {p["model"] for p in preds.values() if p.get("model")}
+    if len(models) > 1:
+        print(f"  WARNING: predictions come from {len(models)} different models: "
+              f"{', '.join(sorted(models))}")
+        print("  The scores below are a mix and describe no single model. Give each model")
+        print("  its own output file.")
+    elif models:
+        print(f"  model: {next(iter(models))}")
     return preds
 
 
@@ -158,7 +174,8 @@ def main() -> int:
     ap.add_argument("predictions", type=Path)
     ap.add_argument("items", type=Path, nargs="?", default=Path("items.csv"))
     ap.add_argument("--split", default="test",
-                    help="benchmark split to score (default: test; 'all' for every split)")
+                    help="splits to score: one name, several separated by commas "
+                         "(train,val), or 'all' (default: test)")
     ap.add_argument("--worst", type=int, default=8,
                     help="how many worst-miss rows to list (default: 8)")
     args = ap.parse_args()

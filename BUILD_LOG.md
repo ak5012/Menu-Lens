@@ -17,6 +17,89 @@ Newest entries at the top.
 
 ---
 
+## 2026-09-15 — Fix: run crashed on "model busy" (503)
+
+**What happened:** the real Gemini run estimated two items in 3.9s and 2.3s, then
+crashed on item 3. Google answered `503 This model is currently experiencing high demand`.
+
+**Why:** the rewritten `bench.py` retried rate limits and timeouts, but left out plain
+model errors, so this one escaped and ended the run. The two finished items were still
+saved, because results are written as they arrive.
+
+**What changed:**
+- `providers.py`: new error type **`ProviderBusy`** for temporary server-side failures
+  (any 5xx from Gemini; 5xx, including 529 "overloaded", from Claude).
+- `bench.py`:
+  - A busy model is retried with a visible wait of 20s, then 40s, then 60s.
+  - Any other model error, such as an unreadable answer, **fails that one item and the
+    run continues**. The reason is printed. `--resume` retries failed items later.
+  - A bad key or unavailable model still stops the whole run, since it affects every item.
+- The server already turns these into 503 "model unavailable", so no server change.
+
+**Tested (simulated):** Google's exact 503 body is read as `ProviderBusy`. Busy on item 3
+then success: waits, completes all 4. Busy 4 times on one item: that item fails, the next
+item runs. Unreadable answer: that item fails with the reason shown, and the run continues.
+
+**Early latency signal:** 3.9s and 2.3s per item on `gemini-3.6-flash`, close to the PRD's
+3-second target. The full run will give a better picture.
+
+---
+
+## 2026-09-15 — Fix: benchmark run appeared frozen
+
+**What happened:** with a real Gemini key, the first item estimated fine (Chicken Burrito
+Bowl 630-820, high confidence), then the run went silent until it was stopped with Ctrl+C,
+which crashed with a long error.
+
+**Why:** two things could make it go quiet, and the old code couldn't tell which:
+- **Hidden retries.** Google's SDK was set to wait and retry rate-limit errors on its own,
+  for up to about 2.5 minutes, printing nothing.
+- **No time limit.** A slow answer could wait indefinitely.
+
+Ctrl+C crashed because requests ran on background threads that Python waits for before
+exiting.
+
+**What changed:**
+- `providers.py`
+  - Gemini requests now have a **90-second time limit**.
+  - The SDK's hidden retries are **off**. Retrying is now the caller's job, so it can be
+    visible.
+  - A rate-limit error now carries **how long Google says to wait** and **whether it's the
+    daily quota**. Retrying a daily quota the same day is pointless, so that stops the run.
+  - New error type `ProviderTimeout`.
+- `bench.py` rewritten again, for visibility and safety:
+  - Items run **one at a time** by default. At 8 requests a minute, parallel requests
+    gained nothing and caused the Ctrl+C crash.
+  - Each item shows before its request starts, then the result and **how many seconds
+    it took**.
+  - Rate limits: prints "rate limited; waiting 33s, then retrying" using Google's suggested
+    wait, up to 4 attempts. Timeouts retry visibly too.
+  - Daily quota: stops and says to resume tomorrow or switch model.
+  - **Every result is saved the moment it arrives.** Ctrl+C now stops cleanly and keeps
+    everything done so far.
+  - **New `--resume`:** re-run the same command and it skips items already saved. Failed
+    items are retried.
+- The server is unaffected in behaviour. With no hidden retries it now answers "too many
+  estimates" (HTTP 429) straight away, instead of making a user wait minutes.
+
+**Tested (no cost, simulated errors):**
+
+| Scenario | Result |
+|---|---|
+| Rate limited once, then succeeds | Wait message shown, item completes, 3/3 saved |
+| Times out once, then succeeds | Retry message shown, item completes |
+| Daily quota on item 3 of 5 | Stops, first 2 saved, advice to resume tomorrow |
+| `--resume` after that | Runs only the remaining 3; file ends with 5 unique items |
+| Ctrl+C during item 2 | Clean stop, item 1 kept, exit code 130 |
+| Google-format rate-limit error, per minute | Read as "wait 33s", not daily |
+| Google-format rate-limit error, per day | Read as daily quota |
+| Network read timeout | Becomes `ProviderTimeout` |
+
+**Still unknown:** why the real second request went quiet. The next real run will show it
+on screen: either a rate-limit wait, a timeout retry, or a slow answer with its time in seconds.
+
+---
+
 ## 2026-09-15 — Fix: Gemini default model changed
 
 **What happened:** the first live smoke test with a real Gemini key failed with

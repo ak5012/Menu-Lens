@@ -29,7 +29,8 @@ from pathlib import Path
 
 from estimator import Estimator, MenuItem
 from providers import (DEFAULT_MODELS, PROVIDERS, ProviderAuthError, ProviderError,
-                       ProviderModelUnavailable, ProviderRateLimited, ProviderTimeout, Suppressed)
+                       ProviderBusy, ProviderModelUnavailable, ProviderRateLimited, ProviderTimeout,
+                       Suppressed)
 
 BENCHMARK = Path(__file__).resolve().parent.parent / "benchmark" / "items.csv"
 
@@ -37,6 +38,9 @@ BENCHMARK = Path(__file__).resolve().parent.parent / "benchmark" / "items.csv"
 # minute (check your own limits at https://aistudio.google.com/rate-limit).
 DEFAULT_RPM = {"gemini": 8, "anthropic": 0, "mock": 0}
 MAX_ATTEMPTS = 4
+DAILY_STOP = ("Daily free quota is used up for this model. Re-run the same command with "
+              "--resume tomorrow, or switch model with --model.")
+NOTICES = [0]  # counts wait/retry messages, so a result can repeat its item label after one
 
 KEY_HELP = {
     "gemini": """
@@ -63,10 +67,9 @@ def say(text: str = "", end: str = "\n") -> None:
 
 def wait_visibly(seconds: float, reason: str) -> None:
     seconds = max(1, round(seconds))
-    for left in range(seconds, 0, -1):
-        say(f"\r      {reason}: waiting {left:>3}s ", end="")
-        time.sleep(1)
-    say("\r" + " " * 60 + "\r", end="")
+    NOTICES[0] += 1
+    say(f"\n         {reason}; waiting {seconds}s, then retrying")
+    time.sleep(seconds)
 
 
 def build_item(row: dict, hide_names: bool) -> MenuItem:
@@ -81,7 +84,7 @@ def build_item(row: dict, hide_names: bool) -> MenuItem:
 
 
 def estimate_with_retries(est: Estimator, row: dict, hide_names: bool, quiet: bool) -> dict | None:
-    """One item, retrying rate limits and timeouts in the open. None means it failed."""
+    """One item, retrying rate limits, timeouts and busy errors in the open. None means it failed."""
     item = build_item(row, hide_names)
     for attempt in range(1, MAX_ATTEMPTS + 1):
         started = time.monotonic()
@@ -91,8 +94,7 @@ def estimate_with_retries(est: Estimator, row: dict, hide_names: bool, quiet: bo
             return {"id": row["id"], "suppressed": True}
         except ProviderRateLimited as exc:
             if exc.daily:
-                raise Stop("Daily free quota is used up for this model. Re-run tomorrow with "
-                           "--resume, or try another model with --model.") from exc
+                raise Stop(DAILY_STOP) from exc
             if attempt == MAX_ATTEMPTS:
                 break
             delay = exc.retry_after or 15 * attempt
@@ -105,9 +107,28 @@ def estimate_with_retries(est: Estimator, row: dict, hide_names: bool, quiet: bo
             if attempt == MAX_ATTEMPTS:
                 break
             if not quiet:
-                say(f"\r      no answer after {time.monotonic() - started:.0f}s, retrying "
+                NOTICES[0] += 1
+                say(f"\n         no answer after {time.monotonic() - started:.0f}s; retrying "
                     f"(attempt {attempt + 1}/{MAX_ATTEMPTS})")
             continue
+        except ProviderBusy:
+            # e.g. Gemini 503 "model is currently experiencing high demand" - usually brief.
+            if attempt == MAX_ATTEMPTS:
+                break
+            delay = 20 * attempt
+            if not quiet:
+                wait_visibly(delay, f"model busy (attempt {attempt}/{MAX_ATTEMPTS})")
+            else:
+                time.sleep(delay)
+            continue
+        except (ProviderAuthError, ProviderModelUnavailable):
+            raise  # affects every item, so main() stops the run
+        except ProviderError as exc:
+            # Anything else (e.g. an unreadable answer) fails this item only; the run continues.
+            if not quiet:
+                NOTICES[0] += 1
+                say(f"\n         {str(exc)[:110]}")
+            return None
         e_secs = time.monotonic() - started
         return {"id": row["id"], "low": e.low, "high": e.high, "midpoint": e.midpoint,
                 "band": e.band, "widened": e.widened, "model": e.model, "seconds": round(e_secs, 1)}
@@ -120,7 +141,8 @@ def main() -> int:
     ap.add_argument("-o", "--out", type=Path, default=Path("predictions.jsonl"))
     ap.add_argument("--provider", choices=sorted(PROVIDERS), default="gemini")
     ap.add_argument("--model", help="override the provider's default model")
-    ap.add_argument("--split", default="test", help="'all' for every split")
+    ap.add_argument("--split", default="test",
+                    help="one split, several separated by commas (train,val), or 'all'")
     ap.add_argument("--limit", type=int)
     ap.add_argument("--resume", action="store_true",
                     help="keep results already in the output file and only run the rest")
@@ -131,8 +153,9 @@ def main() -> int:
                     help="use generic dish names and no restaurant name")
     args = ap.parse_args()
 
+    wanted = {s.strip() for s in args.split.split(",") if s.strip()}
     with args.items.open(newline="", encoding="utf-8") as fh:
-        rows = [r for r in csv.DictReader(fh) if args.split == "all" or r["split"] == args.split]
+        rows = [r for r in csv.DictReader(fh) if args.split == "all" or r["split"] in wanted]
     rows = rows[: args.limit] if args.limit else rows
 
     done: dict[str, dict] = {}
@@ -180,14 +203,19 @@ def main() -> int:
                 if pause > 0:
                     time.sleep(pause)
                 next_start = time.monotonic() + interval
-                say(f"  [{i:>2}/{len(todo)}] {row['item_name'][:38]:<38} ", end="")
+                label = f"  [{i:>2}/{len(todo)}] {row['item_name'][:38]:<38} "
+                say(label, end="")
+                notices_before = NOTICES[0]
                 rec = estimate_with_retries(est, row, args.hide_names, quiet=False)
                 if rec is None:
-                    failed.append(row["id"]); say("failed after retries")
-                elif rec.get("suppressed"):
-                    record(rec); say("no estimate (suppressed)")
+                    failed.append(row["id"])
+                    result = "failed (reason above)" if NOTICES[0] != notices_before else "failed"
                 else:
-                    record(rec); say(f"{rec['low']}-{rec['high']}  {rec['band']:<6} ({rec['seconds']}s)")
+                    record(rec)
+                    result = ("no estimate (suppressed)" if rec.get("suppressed")
+                              else f"{rec['low']}-{rec['high']}  {rec['band']:<6} ({rec['seconds']}s)")
+                # After a wait/retry message the cursor is on a new line, so repeat the label.
+                say(label + result if NOTICES[0] != notices_before else result)
         else:
             with ThreadPoolExecutor(args.concurrency) as pool:
                 futures = {pool.submit(estimate_with_retries, est, r, args.hide_names, True): r for r in todo}
@@ -217,8 +245,10 @@ def main() -> int:
         + (f" ({saved} new this run)" if done else ""))
     if failed:
         say(f"  {len(failed)} failed: {', '.join(failed[:6])}{' ...' if len(failed) > 6 else ''}")
-    if stop_message or failed:
-        say(f"  {stop_message + ' ' if stop_message else ''}Re-run the same command with --resume to finish.")
+    if stop_message:
+        say(f"  {stop_message}")
+    if stop_message != DAILY_STOP and (stop_message or failed):
+        say("  Re-run the same command with --resume to finish.")
     return 130 if stop_message == "Stopped by you." else 0
 
 

@@ -63,7 +63,8 @@ python ..\benchmark\score.py preds-hidden.jsonl ..\benchmark\items.csv
 python ..\benchmark\score.py preds-named.jsonl  ..\benchmark\items.csv
 ```
 
-`bench.py` spaces requests to 8 per minute for Gemini, so each 30-item run takes about
-4 minutes. Change that with `--rpm` if your project's limits differ. Failed items are
-listed, and re-running fills them in. The hidden-name score is the headline number (see
+`bench.py` runs one item at a time, spaced to 8 requests per minute for Gemini, so each
+30-item run takes about 4 minutes or more. Change the pace with `--rpm`. Rate-limit waits
+and retries are printed. Each result is saved as it arrives: Ctrl+C stops safely, and
+re-running the same command with `--resume` continues where it left off. The hidden-name score is the headline number (see
 `../benchmark/README.md`). Scores only count rows with verified labels (58 of 60).
