@@ -1,0 +1,18 @@
+const first = ["Ava", "Liam", "Noah", "Mia", "Zoe", "Eli", "Maya", "Leo"];
+const last = ["Patel", "Nguyen", "Garcia", "Smith", "Kim", "Lopez"];
+const domains = ["gmail.com", "outlook.com", "yahoo.com"];
+
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+const users = Array.from({ length: 10 }, (_, i) => {
+  const f = pick(first), l = pick(last);
+  return {
+    id: i + 1,
+    name: `${f} ${l}`,
+    email: `${f}.${l}${Math.floor(Math.random() * 100)}@${pick(domains)}`.toLowerCase(),
+    age: 18 + Math.floor(Math.random() * 40),
+    active: Math.random() > 0.3,
+  };
+});
+
+console.log(JSON.stringify(users, null, 2));
