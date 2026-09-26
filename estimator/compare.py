@@ -34,8 +34,11 @@ import score  # noqa: E402  (the scorer is the single source of truth for metric
 
 # Models that answer text but can't do what MenuLens needs, or aren't worth benchmarking.
 SKIP_PATTERNS = re.compile(
+    # Can't answer a calorie question, or isn't a distinct model:
+    #   *-latest are moving aliases that duplicate a model already in the sweep;
+    #   omni/transcribe are speech models; customtools is a tool-calling variant.
     r"embedding|aqa|imagen|veo|image|vision|tts|audio|live|learnlm|gemma|"
-    r"thinking-exp|robotics|computer-use",
+    r"thinking-exp|robotics|computer-use|omni|transcribe|customtools|-latest$",
     re.I,
 )
 
@@ -76,8 +79,18 @@ def run_one(model: str, args, out: Path) -> int:
         cmd += ["--rpm", str(args.rpm)]
     print("\n" + "=" * 78)
     print(f"  MODEL: {model}")
-    print("=" * 78)
-    return subprocess.run(cmd, cwd=HERE).returncode
+    print("=" * 78, flush=True)
+    proc = subprocess.Popen(cmd, cwd=HERE)
+    try:
+        return proc.wait()
+    except KeyboardInterrupt:
+        # Ctrl+C reaches bench.py too: give it time to stop cleanly and print its summary.
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        raise
 
 
 def score_one(out: Path, split: str) -> dict | None:
@@ -154,7 +167,12 @@ def main() -> int:
 
     for model in models:
         out = RUNS / f"{slug(args.split)}-{tag}-{slug(model)}.jsonl"
-        code = run_one(model, args, out)
+        try:
+            code = run_one(model, args, out)
+        except KeyboardInterrupt:
+            print("\n  Sweep stopped by you. Results so far are saved under runs/;"
+                  " re-run the same command to continue.\n")
+            return 130
         m = score_one(out, args.split)
         if m is None:
             skipped.append((model, f"no usable results (bench.py exit {code})"))

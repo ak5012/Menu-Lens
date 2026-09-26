@@ -17,3 +17,8 @@
 {"id": "og-fettuccine-alfredo", "low": 880, "high": 1320, "midpoint": 1100, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 37.8}
 {"id": "og-house-salad", "low": 280, "high": 450, "midpoint": 365, "band": "high", "widened": false, "model": "gemini-3.6-flash", "seconds": 3.8}
 {"id": "pan-broccoli-cheddar", "low": 320, "high": 460, "midpoint": 390, "band": "high", "widened": false, "model": "gemini-3.6-flash", "seconds": 5.2}
+{"id": "pan-turkey-bravo", "low": 640, "high": 960, "midpoint": 800, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 6.3}
+{"id": "pan-chipotle-chicken", "low": 814, "high": 1036, "midpoint": 925, "band": "high", "widened": true, "model": "gemini-3.6-flash", "seconds": 4.4}
+{"id": "pan-cinnamon-bagel", "low": 336, "high": 504, "midpoint": 420, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 5.2}
+{"id": "pan-steak-panini", "low": 720, "high": 1080, "midpoint": 900, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 5.5}
+{"id": "shk-smokeshack", "low": 672, "high": 1008, "midpoint": 840, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 5.6}

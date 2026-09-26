@@ -10,10 +10,191 @@ Newest entries at the top.
 | Step | What | Status |
 |---|---|---|
 | 1 | Swap the paid AI model for a free one, and keep the benchmark able to test it | **Done** (waiting on a free Gemini key for a live test) |
-| 2 | Build the Edge extension: content script, service worker, side panel | Next |
-| 3 | Deploy the backend as a small proxy that holds the key, with caching and rate limits | Planned |
-| 4 | Connect the Lovable frontend to the real API | Planned |
+| 2 | Build the Edge extension: content script, service worker, side panel | **Done** (tested with mock answers) |
+| 3 | Deploy the backend as a small proxy that holds the key, with caching and rate limits | Next |
+| 4 | Connect the Lovable frontend to the real API | **Done** for local testing (needs the deployed URL later) |
 | 5 | Privacy policy, store listing, submit to Edge Add-ons | Planned |
+
+---
+
+## 2026-09-26 - Making the free Gemini quota last: group requests, fallback models, cache
+
+**Problem:** the extension kept saying "busy". There were two causes:
+- `gemini-3.6-flash` allows **20 free requests a day**. Google's error said so:
+  `GenerateRequestsPerDayPerProjectPerModel-FreeTier`, limit 20.
+- The extension sent **one request per dish**. Bamboo House has 97 dishes, so it hit the
+  per-minute limit within seconds.
+
+A new key wouldn't help: limits are per Google project, not per key. Making extra
+projects to multiply the free quota would break Google's terms, so it isn't used.
+
+### Benchmark first: does estimating several dishes per request hurt accuracy?
+
+`gemini-3.1-flash-lite`, hidden names, `train`+`val` (29 verified dishes), each mode run
+twice. Groups hold one restaurant's dishes: 6 to 12 per request here, since the
+benchmark has at most 12 per restaurant.
+
+| Run | Requests | Coverage | High | Medium | Width | Typical miss | Answered |
+|---|---|---|---|---|---|---|---|
+| One per request, run 1 | 30 | 52% | 71% | 45% | 0.40 | 15% | 100% |
+| One per request, run 2 | 30 | 48% | 71% | 41% | 0.42 | 22% | 100% |
+| Groups, run 1 | 4 | 52% | 70% | 44% | 0.44 | 25% | 100% |
+| Groups, run 2 | 4 | 55% | 67% | 46% | 0.44 | 21% | 100% |
+
+- **Decision:** groups are **as accurate as single requests**. Repeating the same mode varies
+  about as much as switching modes does. Ranges are slightly wider (0.44 vs 0.41) and still
+  under the 0.45 bar. Requests drop by about 7.5x here, and by up to 20x on real menus.
+- **Not tested:** groups of 20 on a real menu. The benchmark's groups were at most 12 dishes.
+- **Bigger finding:** `gemini-3.1-flash-lite` misses the accuracy bar in **both** modes:
+  about 50% coverage against the 80% target. The model is the accuracy problem, not the
+  grouping. Choose a model with `compare.py` before launch.
+- Raw predictions: `estimator/runs/batchcmp-*-3.1-flash-lite.jsonl`.
+
+### What changed
+
+**`estimator/estimator.py`**
+- New `Estimator.estimate_batch(items)`: 1 to 20 dishes from **one restaurant** in one
+  request. The restaurant is stated once, and the dishes are numbered.
+  - New `BATCH_SYSTEM` prompt: "estimate each dish on its own, as if it were the only dish".
+  - New `BATCH_SCHEMA`: a list of the usual answer fields, plus `index`.
+  - Returns one result per dish. A skipped, garbled or too-vague dish fails **alone**
+    (`ProviderError` or `Suppressed`). A rate limit or other whole-request error is raised.
+- The per-answer rules (fields, minimum width per band, ±60% ceiling) moved into
+  `_checked()`, so single and group answers pass through identical code.
+- `MenuItem.to_prompt()` is split into `dish_lines()` and `restaurant_lines()`. The
+  single-dish prompt text is **byte-for-byte unchanged** (tested), so old cache entries and
+  benchmark results stay valid.
+
+**`estimator/providers.py`**
+- `.env` is loaded automatically (python-dotenv).
+- New `FallbackProvider`, used when `MENULENS_MODEL` lists several models, comma-separated.
+  - A model that is rate limited rests for the wait Google asks for (30s if none).
+  - A model whose daily quota is gone rests for 1 hour.
+  - A busy or slow model rests for 30s.
+  - Meanwhile the next model answers. A "daily" error reaches the user only when every
+    model is out for the day.
+- `MockProvider` answers group requests too, for free testing.
+
+**`estimator/cache.py`** (new): saves every answer (estimates and "too vague") in SQLite
+(`estimator/cache.db`) for 30 days. The key is the provider plus the normalized dish
+prompt, so mock answers never stand in for real ones. `cache.db` is in `.gitignore`.
+
+**`estimator/server.py`**
+- New `POST /v1/estimate/batch`:
+  - Request: `{items: [up to 20], restaurant}`.
+  - Response: `{results: [...], model_requests: 0 | 1}`. Each result's `status` is `ok`,
+    `insufficient_signal` or `error`.
+  - Cached dishes skip the model. If every dish is cached, no model request is made.
+- `/v1/estimate` and the group endpoint share one cache and one error mapping (`model_errors_as_http`).
+- 429 errors now say which limit was hit:
+  - `rate_limited`, with `retry_after_s`: wait and try again.
+  - `daily_quota`: "Today's free estimate limit is used up".
+  - Before, both said "try again in a minute".
+
+**`estimator/bench.py`**
+- New `--batch N` option: groups the benchmark's dishes by restaurant, N per request.
+- Retry handling moved into `call_with_retries()`, shared by both modes. In group mode,
+  `seconds` is the whole request, and the record includes `batch_size`.
+
+**`estimator/.env`**
+- `MENULENS_MODEL=gemini-3.1-flash-lite,gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3-flash-preview`.
+- `gemini-3.6-flash` was dropped from the list because of its 20-a-day limit.
+
+**`extension/`**
+- `sidepanel.js`:
+  - The whole menu is sent to `/v1/estimate/batch` in groups of 20, 2 groups at a time,
+    in page order.
+  - Rate limited: the group keeps its place, and a banner says "Continuing by itself in
+    about Ns".
+  - Daily limit: the panel stops and says so.
+  - Retry re-asks for one dish.
+  - The on-screen-only estimation added earlier today was removed. With groups, the
+    whole menu costs only a few requests.
+- `content.js`:
+  - The restaurant name skips title parts about the menu itself, so "Menu @ Austin -
+    Bamboo House" gives "Bamboo House".
+  - Menu codes are removed ("N3. Szechuan Beef" becomes "Szechuan Beef").
+  - A section heading inside a card is no longer taken as the dish name.
+  - Price lines ("$21.95 SP") and headings are no longer used as descriptions.
+
+**Lovable MenuLens:** the upload page uses `estimateBatch()`, with groups of 20, 2 at a
+time. Rate limits wait and resend automatically. The daily limit stops the run with a
+message. Retry sends one dish. (2.6 credits.)
+
+### Tested
+
+- Unit tests:
+  - `estimate_batch`: missing, out-of-order, duplicate and garbled answers; a too-wide
+    range; the size and one-restaurant rules.
+  - `FallbackProvider`: rests and skips a limited model; tells daily limits from per-minute ones.
+  - Cache: reused across both endpoints, still served while rate limited.
+  - Group endpoint: partial failures, 429 detail, 0 or 21 items rejected.
+- **Real Gemini benchmark:** the table above.
+- **Extension, headless Chrome, 60-dish test page, stand-in API on port 8090:**
+  - The whole menu took 3 group requests, plus 1 re-send after a simulated rate limit.
+  - 38 dishes showed within 1.5s.
+  - Skipped dishes showed Retry, and Retry fixed them.
+  - No page errors.
+- **Not tested:**
+  - The Lovable page against the server (its preview needs a Lovable login).
+  - A real 97-dish menu through the real server.
+
+**Testing mistake:** an earlier extension test used port 8000 while the real server was
+running there. About 15-20 test dishes went to real Gemini, and the test's cleanup
+stopped the server. Tests now use port 8090.
+
+---
+
+## 2026-09-25 — Edge extension, and the website connected to the API
+
+**Backend (`estimator/`):**
+- Keys and settings now load from `estimator/.env` automatically (`python-dotenv`).
+  Anything set in the shell still wins.
+- New `POST /v1/menu/parse`: splits pasted menu text into dishes (name, description,
+  section). Plain rules, no model call, so it's free and instant. It handles section
+  headings, prices, "name - description" lines, and descriptions on the line below.
+- Input limits on `/v1/estimate` (name 120 characters, description 500), so a page
+  can't send a huge prompt.
+- `.env` allows the Lovable preview addresses in `MENULENS_ALLOWED_ORIGINS`.
+
+**Extension (`extension/`, Manifest V3):** see `extension/README.md`.
+- Uses the smallest set of permissions: `activeTab` (read a page only after the icon is
+  clicked), `scripting`, `sidePanel`, and the local API. No "read all websites"
+  permission, which makes store review easier.
+- Reads dishes from schema.org menu data first, then from prices on the page.
+- The side panel matches the Lovable panel design. It sends 2 requests at a time and
+  shows a loading card per dish, "too uncertain" for dishes the estimator declines
+  (422), Retry on errors, and a banner when the server can't be reached.
+
+**Website (Lovable MenuLens):** the upload page now calls `/v1/menu/parse` and then
+`/v1/estimate` for each dish, 2 at a time, instead of using sample data. PDF and .docx
+files are read in the browser. The API address comes from `VITE_MENULENS_API_URL`, and
+defaults to `http://localhost:8000`.
+
+**Tested:**
+- API with `mock`: parsing (sections, prices, duplicates, name-only dishes), input
+  limits (422), and CORS (listed site allowed, other sites refused).
+- Extension in headless Chrome. Automated Edge exits on launch on this machine, and the
+  extension APIs are the same Chromium ones.
+  - A normal menu page: 6 dishes and the $$ tier found. Navigation and footer prices
+    ignored. A dish added 2.5 seconds later appeared as "New".
+  - A schema.org page: name, "$ · Mexican" and 3 dishes.
+  - A news article with one price: no menu found.
+  - A dish name containing HTML was shown as text, not run as code.
+  - Server stopped: a banner and a Retry button per dish. After restarting the server,
+    Retry filled in every card.
+  - Fixed a bug found here: the "no menu" message showed even when dishes were found.
+- **Not tested:**
+  - The real toolbar-icon click (a script can't click the toolbar). The test granted
+    access another way.
+  - The Lovable page against the API, because its preview requires a Lovable login.
+    Only a code review was done.
+  - Real Gemini answers (daily quota used up).
+
+**To try it:** start the API, load `extension/` in `edge://extensions` (see its README),
+and open the Lovable preview while logged in. The first time the website calls
+`localhost`, the browser may ask to allow access to devices on your local network.
+Choose Allow.
 
 ---
 

@@ -29,7 +29,7 @@ python estimator.py "Chicken Alfredo" --provider mock
 
 $env:MENULENS_PROVIDER = "gemini"               # or mock / anthropic
 $env:MENULENS_ALLOWED_ORIGINS = "https://your-lovable-preview.lovable.app"   # web app only
-uvicorn server:app --port 8000
+python -m uvicorn server:app --port 8000
 ```
 
 ## Choosing a model
@@ -42,6 +42,20 @@ uvicorn server:app --port 8000
 
 Override the model with `--model` or `MENULENS_MODEL`. Check which Gemini models your
 project can use for free, and its limits, at https://aistudio.google.com/rate-limit.
+
+## Making the free tier last
+
+Free tiers limit **requests** per minute and per day, separately for each model.
+`gemini-3.6-flash`, for example, allows only 20 free requests a day. The server
+stretches this in three ways:
+
+| How | Where | Effect |
+|---|---|---|
+| **Several dishes per request.** `POST /v1/estimate/batch` takes up to 20 dishes from one restaurant. | `estimator.py` `estimate_batch()` | A 97-dish menu is 5 requests, not 97. The benchmark showed no accuracy difference (see `BUILD_LOG.md`, 2026-09-26). |
+| **Fallback models.** `MENULENS_MODEL` can list several models, comma-separated. | `providers.py` `FallbackProvider` | A rate-limited or busy model rests: for the wait Google asks for, or 1 hour when its daily quota is gone. Meanwhile the next model answers. |
+| **Cache.** Every answer is saved in `cache.db` for 30 days. | `cache.py` | The same dish at the same restaurant costs one request, ever. Delete `cache.db` to start fresh. |
+
+Benchmark group requests with `python bench.py --hide-names --split train,val --batch 20 -o out.jsonl`.
 
 ## What the code guarantees, whatever the model says
 

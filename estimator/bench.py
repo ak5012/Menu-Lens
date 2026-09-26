@@ -27,7 +27,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from estimator import Estimator, MenuItem
+from estimator import MAX_BATCH, Estimator, MenuItem
 from providers import (DEFAULT_MODELS, PROVIDERS, ProviderAuthError, ProviderError,
                        ProviderBusy, ProviderModelUnavailable, ProviderRateLimited, ProviderTimeout,
                        Suppressed)
@@ -83,15 +83,15 @@ def build_item(row: dict, hide_names: bool) -> MenuItem:
                     cuisine=row["cuisine"], price_tier=int(row["price_tier"]))
 
 
-def estimate_with_retries(est: Estimator, row: dict, hide_names: bool, quiet: bool) -> dict | None:
-    """One item, retrying rate limits, timeouts and busy errors in the open. None means it failed."""
-    item = build_item(row, hide_names)
+def call_with_retries(call, quiet: bool):
+    """Run call(), retrying rate limits, timeouts and busy errors in the open.
+
+    Returns call()'s result, or None if it kept failing. Suppressed passes straight through.
+    """
     for attempt in range(1, MAX_ATTEMPTS + 1):
         started = time.monotonic()
         try:
-            e = est.estimate(item)
-        except Suppressed:
-            return {"id": row["id"], "suppressed": True}
+            return call()
         except ProviderRateLimited as exc:
             if exc.daily:
                 raise Stop(DAILY_STOP) from exc
@@ -124,15 +124,62 @@ def estimate_with_retries(est: Estimator, row: dict, hide_names: bool, quiet: bo
         except (ProviderAuthError, ProviderModelUnavailable):
             raise  # affects every item, so main() stops the run
         except ProviderError as exc:
-            # Anything else (e.g. an unreadable answer) fails this item only; the run continues.
+            # Anything else (e.g. an unreadable answer) fails this call only; the run continues.
             if not quiet:
                 NOTICES[0] += 1
                 say(f"\n         {str(exc)[:110]}")
             return None
-        e_secs = time.monotonic() - started
-        return {"id": row["id"], "low": e.low, "high": e.high, "midpoint": e.midpoint,
-                "band": e.band, "widened": e.widened, "model": e.model, "seconds": round(e_secs, 1)}
     return None
+
+
+def timed(fn, *args):
+    started = time.monotonic()
+    result = fn(*args)
+    return result, round(time.monotonic() - started, 1)
+
+
+def prediction(row: dict, e, seconds: float, batch_size: int = 1) -> dict:
+    rec = {"id": row["id"], "low": e.low, "high": e.high, "midpoint": e.midpoint,
+           "band": e.band, "widened": e.widened, "model": e.model, "seconds": seconds}
+    if batch_size > 1:
+        rec["batch_size"] = batch_size  # seconds is then the whole request: the wait for this dish
+    return rec
+
+
+def estimate_with_retries(est: Estimator, row: dict, hide_names: bool, quiet: bool) -> dict | None:
+    """One item. None means it failed."""
+    item = build_item(row, hide_names)
+    try:
+        answer = call_with_retries(lambda: timed(est.estimate, item), quiet)
+    except Suppressed:
+        return {"id": row["id"], "suppressed": True}
+    return None if answer is None else prediction(row, *answer)
+
+
+def batches(rows: list[dict], hide_names: bool, size: int) -> list[list[dict]]:
+    """Group rows by restaurant, keeping their order, into chunks of at most `size`."""
+    by_restaurant: dict[tuple, list[dict]] = {}
+    for row in rows:
+        by_restaurant.setdefault(build_item(row, hide_names).restaurant_key(), []).append(row)
+    return [group[i:i + size] for group in by_restaurant.values() for i in range(0, len(group), size)]
+
+
+def estimate_batch_with_retries(est: Estimator, rows: list[dict], hide_names: bool) -> list[dict | str]:
+    """Several items from one restaurant in one request. Per row: its prediction, or why it failed."""
+    items = [build_item(r, hide_names) for r in rows]
+    answer = call_with_retries(lambda: timed(est.estimate_batch, items), quiet=False)
+    if answer is None:
+        return ["the request failed"] * len(rows)
+    results, seconds = answer
+    out: list[dict | str] = []
+    for row, result in zip(rows, results):
+        if isinstance(result, Suppressed):
+            out.append({"id": row["id"], "suppressed": True})
+        elif isinstance(result, Exception):
+            out.append(str(result)[:90])
+        else:
+            out.append(prediction(row, result, seconds, len(rows)))
+    return out
 
 
 def main() -> int:
@@ -151,7 +198,11 @@ def main() -> int:
     ap.add_argument("--rpm", type=int, help="max requests per minute (0 = unlimited)")
     ap.add_argument("--hide-names", action="store_true",
                     help="use generic dish names and no restaurant name")
+    ap.add_argument("--batch", type=int, default=1,
+                    help=f"dishes per request, grouped by restaurant (default 1; max {MAX_BATCH})")
     args = ap.parse_args()
+    if not 1 <= args.batch <= MAX_BATCH:
+        ap.error(f"--batch must be between 1 and {MAX_BATCH}")
 
     wanted = {s.strip() for s in args.split.split(",") if s.strip()}
     with args.items.open(newline="", encoding="utf-8") as fh:
@@ -175,7 +226,9 @@ def main() -> int:
     model = args.model or DEFAULT_MODELS[args.provider]
     rpm = DEFAULT_RPM[args.provider] if args.rpm is None else args.rpm
     interval = 60.0 / rpm if rpm > 0 else 0.0
+    groups = batches(todo, args.hide_names, args.batch) if args.batch > 1 else []
     say(f"\n  {args.provider} / {model}: {len(todo)} item(s) to run"
+        + (f" in {len(groups)} request(s) of up to {args.batch}" if groups else "")
         + (f", {len(done)} already done" if done else "")
         + (f", one request every {interval:.1f}s" if interval else ""))
     if args.provider == "mock":
@@ -197,7 +250,25 @@ def main() -> int:
         saved += 1
 
     try:
-        if args.concurrency <= 1:
+        if groups:
+            n = 0
+            for g, group in enumerate(groups, 1):
+                pause = next_start - time.monotonic()
+                if pause > 0:
+                    time.sleep(pause)
+                next_start = time.monotonic() + interval
+                say(f"  request {g}/{len(groups)}: {len(group)} dishes")
+                for row, rec in zip(group, estimate_batch_with_retries(est, group, args.hide_names)):
+                    n += 1
+                    label = f"  [{n:>2}/{len(todo)}] {row['item_name'][:38]:<38} "
+                    if isinstance(rec, str):
+                        failed.append(row["id"])
+                        say(label + f"failed: {rec}")
+                    else:
+                        record(rec)
+                        say(label + ("no estimate (suppressed)" if rec.get("suppressed") else
+                                     f"{rec['low']}-{rec['high']}  {rec['band']:<6} ({rec['seconds']}s request)"))
+        elif args.concurrency <= 1:
             for i, row in enumerate(todo, 1):
                 pause = next_start - time.monotonic()
                 if pause > 0:

@@ -19,6 +19,18 @@ import hashlib
 import json
 import os
 import re
+import threading
+import time
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # optional: keys can still come from the shell
+    load_dotenv = None
+
+# API keys and settings from estimator/.env. Anything already set in the shell wins.
+if load_dotenv:
+    load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 DEFAULT_MODELS = {
     "gemini": "gemini-3.6-flash",
@@ -190,6 +202,10 @@ class MockProvider(Provider):
     name = "mock"
 
     def generate(self, system: str, prompt: str, schema: dict) -> tuple[dict, str]:
+        if "estimates" in schema.get("properties", {}):  # a batch: one fake answer per dish
+            dishes = re.findall(r"^(\d+)\. (Item: .*)$", prompt, re.M)
+            return {"estimates": [{"index": int(n), **self.generate(system, dish, {})[0]}
+                                  for n, dish in dishes]}, "mock"
         h = int(hashlib.sha256(prompt.encode()).hexdigest(), 16)
         midpoint = 150 + h % 1200
         band = ("high", "medium", "low")[h % 3]
@@ -204,11 +220,66 @@ class MockProvider(Provider):
         }, "mock"
 
 
+class FallbackProvider(Provider):
+    """Several models of one provider, tried in order.
+
+    Free tiers limit each model separately, per minute and per day. When a model is rate
+    limited, busy or slow, it rests for a while and the next model answers instead, so
+    the combined free allowance is the sum of all of them. Only when every model is
+    resting does the caller see the error.
+    """
+
+    DAILY_REST_S = 3600      # re-check a model whose daily quota ran out once an hour
+    DEFAULT_REST_S = 30      # rate limited without a suggested wait, busy, or timed out
+
+    def __init__(self, providers: list[Provider]):
+        self.providers = providers
+        self.name = providers[0].name
+        self.model = ",".join(p.model for p in providers)
+        self._resting_until: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def _rest(self, model: str, seconds: float) -> None:
+        with self._lock:
+            self._resting_until[model] = time.monotonic() + seconds
+
+    def generate(self, system: str, prompt: str, schema: dict) -> tuple[dict, str]:
+        now = time.monotonic()
+        with self._lock:
+            ready = [p for p in self.providers if self._resting_until.get(p.model, 0) <= now]
+        last: ProviderError | None = None
+        for provider in ready:
+            try:
+                return provider.generate(system, prompt, schema)
+            except ProviderRateLimited as exc:
+                rest = self.DAILY_REST_S if exc.daily else (exc.retry_after or self.DEFAULT_REST_S)
+                self._rest(provider.model, rest)
+                last = exc
+            except (ProviderBusy, ProviderTimeout, ProviderModelUnavailable) as exc:
+                self._rest(provider.model, self.DEFAULT_REST_S)
+                last = exc
+        if last is None:  # every model is resting from an earlier failure
+            with self._lock:
+                wait = min(self._resting_until.values()) - now
+            last = ProviderRateLimited("all models are resting", retry_after=max(1.0, wait))
+        # Daily only if every model is out for the day; otherwise it's a short wait.
+        if isinstance(last, ProviderRateLimited) and last.daily:
+            with self._lock:
+                soonest = min(self._resting_until.values()) - now
+            if soonest < self.DAILY_REST_S - 60:
+                last = ProviderRateLimited(str(last), retry_after=max(1.0, soonest))
+        raise last
+
+
 PROVIDERS = {p.name: p for p in (GeminiProvider, AnthropicProvider, MockProvider)}
 
 
 def get_provider(name: str | None = None, model: str | None = None) -> Provider:
+    """MENULENS_MODEL may list several models, comma-separated, to fall back between."""
     name = (name or os.environ.get("MENULENS_PROVIDER") or "gemini").lower()
     if name not in PROVIDERS:
         raise ValueError(f"unknown provider {name!r}; choose from {sorted(PROVIDERS)}")
-    return PROVIDERS[name](model or os.environ.get("MENULENS_MODEL"))
+    models = [m.strip() for m in (model or os.environ.get("MENULENS_MODEL") or "").split(",") if m.strip()]
+    if len(models) > 1:
+        return FallbackProvider([PROVIDERS[name](m) for m in models])
+    return PROVIDERS[name](models[0] if models else None)

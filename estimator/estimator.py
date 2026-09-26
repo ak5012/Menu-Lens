@@ -65,6 +65,33 @@ SCHEMA = {
     "additionalProperties": False,
 }
 
+# Several dishes from one menu in a single request. Free tiers limit requests, not dishes,
+# so this stretches the same quota across many more dishes.
+MAX_BATCH = 20
+
+BATCH_SYSTEM = SYSTEM + """
+
+You will be given several numbered dishes from the same menu. Estimate each dish on its \
+own, exactly as you would if it were the only dish you were asked about. Return one \
+entry for every dish, with its number in "index"."""
+
+BATCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "estimates": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"index": {"type": "integer"}, **SCHEMA["properties"]},
+                "required": ["index", *SCHEMA["required"]],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["estimates"],
+    "additionalProperties": False,
+}
+
 
 @dataclass
 class MenuItem:
@@ -76,17 +103,26 @@ class MenuItem:
     section: str = ""
     sourcing_signals: list[str] = field(default_factory=list)
 
-    def to_prompt(self) -> str:
+    def dish_lines(self) -> list[str]:
         lines = [f"Item: {self.name}",
                  f"Description: {self.description or '(none printed on the menu)'}"]
         if self.section:
             lines.append(f"Menu section: {self.section}")
-        lines.append(f"Restaurant: {self.restaurant or 'unknown'}")
-        lines.append(f"Cuisine: {self.cuisine or 'unknown'}")
-        lines.append(f"Price tier: {'$' * self.price_tier if self.price_tier else 'unknown'}")
+        return lines
+
+    def restaurant_lines(self) -> list[str]:
+        lines = [f"Restaurant: {self.restaurant or 'unknown'}",
+                 f"Cuisine: {self.cuisine or 'unknown'}",
+                 f"Price tier: {'$' * self.price_tier if self.price_tier else 'unknown'}"]
         if self.sourcing_signals:
             lines.append(f"Sourcing language on the menu: {', '.join(self.sourcing_signals)}")
-        return "\n".join(lines)
+        return lines
+
+    def restaurant_key(self) -> tuple:
+        return (self.restaurant, self.cuisine, self.price_tier, tuple(self.sourcing_signals))
+
+    def to_prompt(self) -> str:
+        return "\n".join(self.dish_lines() + self.restaurant_lines())
 
 
 @dataclass
@@ -124,6 +160,43 @@ class Estimator:
 
     def estimate(self, item: MenuItem) -> Estimate:
         data, served_by = self.provider.generate(SYSTEM, item.to_prompt(), SCHEMA)
+        return self._checked(data, served_by)
+
+    def estimate_batch(self, items: list[MenuItem]) -> list[Estimate | Exception]:
+        """Estimate up to MAX_BATCH dishes from one restaurant in a single request.
+
+        Returns one entry per item, in order: an Estimate, or the exception for that dish
+        alone (Suppressed, or ProviderError if the answer skipped or garbled it). An error
+        that affects the whole request, such as a rate limit, is raised instead.
+        """
+        if not 1 <= len(items) <= MAX_BATCH:
+            raise ValueError(f"a batch holds 1 to {MAX_BATCH} items, got {len(items)}")
+        if len({i.restaurant_key() for i in items}) > 1:
+            raise ValueError("every item in a batch must come from the same restaurant")
+        dishes = []
+        for n, item in enumerate(items, 1):
+            first, *rest = item.dish_lines()
+            dishes.append(f"{n}. {first}" + "".join(f"\n   {line}" for line in rest))
+        prompt = "\n".join(items[0].restaurant_lines()) + "\n\nDishes:\n" + "\n".join(dishes)
+
+        data, served_by = self.provider.generate(BATCH_SYSTEM, prompt, BATCH_SCHEMA)
+        answers: dict[int, dict] = {}
+        for entry in (data.get("estimates") if isinstance(data, dict) else None) or []:
+            if isinstance(entry, dict) and isinstance(entry.get("index"), int):
+                answers.setdefault(entry["index"], entry)
+        results: list[Estimate | Exception] = []
+        for n in range(1, len(items) + 1):
+            if n not in answers:
+                results.append(ProviderError(f"the answer skipped dish {n}"))
+                continue
+            try:
+                results.append(self._checked(answers[n], served_by))
+            except (Suppressed, ProviderError) as exc:
+                results.append(exc)
+        return results
+
+    def _checked(self, data: dict, served_by: str) -> Estimate:
+        """Apply the rules every answer must pass, whatever the model said."""
         try:
             low, high, midpoint, band = (int(data["low"]), int(data["high"]),
                                          int(data["midpoint"]), data["band"])
