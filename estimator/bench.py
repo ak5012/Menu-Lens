@@ -27,7 +27,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from estimator import MAX_BATCH, Estimator, MenuItem
+from estimator import MAX_BATCH, PIPELINES, Estimator, MenuItem
 from providers import (DEFAULT_MODELS, PROVIDERS, ProviderAuthError, ProviderError,
                        ProviderBusy, ProviderModelUnavailable, ProviderRateLimited, ProviderTimeout,
                        Suppressed)
@@ -72,15 +72,20 @@ def wait_visibly(seconds: float, reason: str) -> None:
     time.sleep(seconds)
 
 
+# Extra restaurant context for the reasoned pipeline. Every benchmark chain is in the US;
+# the direct pipeline's prompts stay exactly as before, so old results remain comparable.
+EXTRA_CONTEXT = {"location": ""}
+
+
 def build_item(row: dict, hide_names: bool) -> MenuItem:
     # Menu-visible fields only: true_kcal must never reach the model.
     if hide_names:
         return MenuItem(name=row["generic_name"], description=row["generic_description"],
                         restaurant=f"a {row['format']} {row['cuisine']} restaurant",
-                        cuisine=row["cuisine"], price_tier=int(row["price_tier"]))
+                        cuisine=row["cuisine"], price_tier=int(row["price_tier"]), **EXTRA_CONTEXT)
     return MenuItem(name=row["item_name"], description=row["menu_description"],
                     restaurant=row["chain"].replace("-", " ").title(),
-                    cuisine=row["cuisine"], price_tier=int(row["price_tier"]))
+                    cuisine=row["cuisine"], price_tier=int(row["price_tier"]), **EXTRA_CONTEXT)
 
 
 def call_with_retries(call, quiet: bool):
@@ -200,7 +205,12 @@ def main() -> int:
                     help="use generic dish names and no restaurant name")
     ap.add_argument("--batch", type=int, default=1,
                     help=f"dishes per request, grouped by restaurant (default 1; max {MAX_BATCH})")
+    ap.add_argument("--pipeline", choices=PIPELINES, default="direct",
+                    help="direct (dish -> range) or reasoned (restaurant profile, then per-dish "
+                         "reasoning; adds location 'United States')")
     args = ap.parse_args()
+    if args.pipeline == "reasoned":
+        EXTRA_CONTEXT["location"] = "United States"
     if not 1 <= args.batch <= MAX_BATCH:
         ap.error(f"--batch must be between 1 and {MAX_BATCH}")
 
@@ -218,7 +228,7 @@ def main() -> int:
     todo = [r for r in rows if r["id"] not in done]
 
     try:
-        est = Estimator(args.provider, args.model)
+        est = Estimator(args.provider, args.model, pipeline=args.pipeline)
     except ProviderAuthError as exc:
         say(f"\n  {exc}.{KEY_HELP.get(args.provider, '')}")
         return 1
@@ -227,7 +237,7 @@ def main() -> int:
     rpm = DEFAULT_RPM[args.provider] if args.rpm is None else args.rpm
     interval = 60.0 / rpm if rpm > 0 else 0.0
     groups = batches(todo, args.hide_names, args.batch) if args.batch > 1 else []
-    say(f"\n  {args.provider} / {model}: {len(todo)} item(s) to run"
+    say(f"\n  {args.provider} / {model} / {args.pipeline} pipeline: {len(todo)} item(s) to run"
         + (f" in {len(groups)} request(s) of up to {args.batch}" if groups else "")
         + (f", {len(done)} already done" if done else "")
         + (f", one request every {interval:.1f}s" if interval else ""))
