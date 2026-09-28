@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict, dataclass, field
 
@@ -102,12 +103,19 @@ class MenuItem:
     price_tier: int | None = None
     section: str = ""
     sourcing_signals: list[str] = field(default_factory=list)
+    # Optional context. Each line is only added to the prompt when set, so prompts (and
+    # cached answers) for items without them are unchanged.
+    location: str = ""      # e.g. "Austin, TX, United States"
+    venue_type: str = ""    # e.g. "sit-down", "fast food", as the page or user states it
+    price: float | None = None
 
     def dish_lines(self) -> list[str]:
         lines = [f"Item: {self.name}",
                  f"Description: {self.description or '(none printed on the menu)'}"]
         if self.section:
             lines.append(f"Menu section: {self.section}")
+        if self.price:
+            lines.append(f"Menu price: ${self.price:.2f}")
         return lines
 
     def restaurant_lines(self) -> list[str]:
@@ -116,10 +124,15 @@ class MenuItem:
                  f"Price tier: {'$' * self.price_tier if self.price_tier else 'unknown'}"]
         if self.sourcing_signals:
             lines.append(f"Sourcing language on the menu: {', '.join(self.sourcing_signals)}")
+        if self.venue_type:
+            lines.append(f"Kind of place: {self.venue_type}")
+        if self.location:
+            lines.append(f"Location: {self.location}")
         return lines
 
     def restaurant_key(self) -> tuple:
-        return (self.restaurant, self.cuisine, self.price_tier, tuple(self.sourcing_signals))
+        return (self.restaurant, self.cuisine, self.price_tier, tuple(self.sourcing_signals),
+                self.venue_type, self.location)
 
     def to_prompt(self) -> str:
         return "\n".join(self.dish_lines() + self.restaurant_lines())
@@ -135,6 +148,7 @@ class Estimate:
     rationale: str
     model: str
     widened: bool = False  # True when the model's range was narrower than its band allows
+    reasoning: dict = field(default_factory=dict)  # reasoned pipeline: ingredients, method...
 
 
 def enforce_width(low: int, high: int, midpoint: int, band: str) -> tuple[int, int, bool]:
@@ -154,13 +168,58 @@ def enforce_width(low: int, high: int, midpoint: int, band: str) -> tuple[int, i
     return new_low, new_high, (new_low, new_high) != (low, high)
 
 
+PIPELINES = ("direct", "reasoned")
+
+
+class MemoryProfiles:
+    """Where restaurant profiles are kept by default: in memory, for one process."""
+
+    def __init__(self):
+        self._data: dict[str, dict] = {}
+
+    def get(self, key: str) -> dict | None:
+        return self._data.get(key)
+
+    def put(self, key: str, profile: dict) -> None:
+        self._data[key] = profile
+
+
 class Estimator:
-    def __init__(self, provider: Provider | str | None = None, model: str | None = None):
+    """pipeline "direct": one step, dish -> range (the original).
+    pipeline "reasoned": restaurant profile first (cached), then per-dish reasoning
+    before the range; see reasoning.py. Set with MENULENS_PIPELINE."""
+
+    def __init__(self, provider: Provider | str | None = None, model: str | None = None,
+                 pipeline: str | None = None, profiles=None):
         self.provider = provider if isinstance(provider, Provider) else get_provider(provider, model)
+        self.pipeline = (pipeline or os.environ.get("MENULENS_PIPELINE") or "direct").lower()
+        if self.pipeline not in PIPELINES:
+            raise ValueError(f"unknown pipeline {self.pipeline!r}; choose from {PIPELINES}")
+        self.profiles = profiles if profiles is not None else MemoryProfiles()
 
     def estimate(self, item: MenuItem) -> Estimate:
+        if self.pipeline == "reasoned":
+            result = self.estimate_batch([item])[0]
+            if isinstance(result, Exception):
+                raise result
+            return result
         data, served_by = self.provider.generate(SYSTEM, item.to_prompt(), SCHEMA)
         return self._checked(data, served_by)
+
+    def profile_key(self, item: MenuItem) -> str:
+        """Profiles are kept per provider, so a mock profile never stands in for a real one."""
+        from reasoning import profile_key
+        return f"{self.provider.name}|{profile_key(item)}"
+
+    def profile_for(self, items: list[MenuItem]):
+        """The restaurant profile for these items (reasoned pipeline), built once and kept."""
+        from reasoning import RestaurantProfile, build_profile
+        key = self.profile_key(items[0])
+        if (saved := self.profiles.get(key)) is not None:
+            return RestaurantProfile.from_answer(saved)
+        profile = build_profile(self.provider, items)
+        self.profiles.put(key, profile.to_dict())
+        return profile
 
     def estimate_batch(self, items: list[MenuItem]) -> list[Estimate | Exception]:
         """Estimate up to MAX_BATCH dishes from one restaurant in a single request.
@@ -173,13 +232,19 @@ class Estimator:
             raise ValueError(f"a batch holds 1 to {MAX_BATCH} items, got {len(items)}")
         if len({i.restaurant_key() for i in items}) > 1:
             raise ValueError("every item in a batch must come from the same restaurant")
-        dishes = []
-        for n, item in enumerate(items, 1):
-            first, *rest = item.dish_lines()
-            dishes.append(f"{n}. {first}" + "".join(f"\n   {line}" for line in rest))
-        prompt = "\n".join(items[0].restaurant_lines()) + "\n\nDishes:\n" + "\n".join(dishes)
+        if self.pipeline == "reasoned":
+            from reasoning import REASONED_SCHEMA, REASONED_SYSTEM, dishes_prompt
+            system, schema = REASONED_SYSTEM, REASONED_SCHEMA
+            prompt = dishes_prompt(self.profile_for(items), items)
+        else:
+            dishes = []
+            for n, item in enumerate(items, 1):
+                first, *rest = item.dish_lines()
+                dishes.append(f"{n}. {first}" + "".join(f"\n   {line}" for line in rest))
+            system, schema = BATCH_SYSTEM, BATCH_SCHEMA
+            prompt = "\n".join(items[0].restaurant_lines()) + "\n\nDishes:\n" + "\n".join(dishes)
 
-        data, served_by = self.provider.generate(BATCH_SYSTEM, prompt, BATCH_SCHEMA)
+        data, served_by = self.provider.generate(system, prompt, schema)
         answers: dict[int, dict] = {}
         for entry in (data.get("estimates") if isinstance(data, dict) else None) or []:
             if isinstance(entry, dict) and isinstance(entry.get("index"), int):
@@ -207,6 +272,7 @@ class Estimator:
             raise ProviderError(f"model returned an unknown confidence band {band!r}")
 
         low, high, widened = enforce_width(low, high, midpoint, band)
+        from reasoning import REASONING_FIELDS
         return Estimate(
             low=low,
             high=high,
@@ -216,6 +282,7 @@ class Estimator:
             rationale=rationale,
             model=served_by,
             widened=widened,
+            reasoning={f: str(data[f]) for f in REASONING_FIELDS if data.get(f)},
         )
 
 

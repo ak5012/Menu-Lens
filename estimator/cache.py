@@ -19,12 +19,15 @@ MAX_AGE_S = 30 * 24 * 3600  # re-ask after a month, in case the prompt or model 
 
 
 class EstimateCache:
-    def __init__(self, path: Path | str = DEFAULT_PATH):
-        self._db = sqlite3.connect(str(path), check_same_thread=False)
+    def __init__(self, path: Path | str | None = None):
+        self._db = sqlite3.connect(str(path or DEFAULT_PATH), check_same_thread=False)
         self._db.execute("CREATE TABLE IF NOT EXISTS estimates "
                          "(key TEXT PRIMARY KEY, status INTEGER, body TEXT, saved REAL)")
+        self._db.execute("CREATE TABLE IF NOT EXISTS profiles "
+                         "(key TEXT PRIMARY KEY, body TEXT, saved REAL)")
         self._db.commit()
         self._lock = threading.Lock()
+        self.profiles = _Profiles(self)
 
     @staticmethod
     def key(provider: str, prompt: str) -> str:
@@ -44,3 +47,24 @@ class EstimateCache:
             self._db.execute("INSERT OR REPLACE INTO estimates VALUES (?, ?, ?, ?)",
                              (key, status, json.dumps(body), time.time()))
             self._db.commit()
+
+
+class _Profiles:
+    """Restaurant profiles (reasoned pipeline), one per restaurant, same file and age limit."""
+
+    def __init__(self, cache: EstimateCache):
+        self._cache = cache
+
+    def get(self, key: str) -> dict | None:
+        with self._cache._lock:
+            row = self._cache._db.execute("SELECT body, saved FROM profiles WHERE key = ?",
+                                          (key,)).fetchone()
+        if not row or time.time() - row[1] > MAX_AGE_S:
+            return None
+        return json.loads(row[0])
+
+    def put(self, key: str, profile: dict) -> None:
+        with self._cache._lock:
+            self._cache._db.execute("INSERT OR REPLACE INTO profiles VALUES (?, ?, ?)",
+                                    (key, json.dumps(profile), time.time()))
+            self._cache._db.commit()

@@ -41,14 +41,19 @@ if origins:
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"],
                        allow_headers=["Content-Type"])
 
-estimator = Estimator()  # provider and model come from MENULENS_PROVIDER / MENULENS_MODEL
 cache = EstimateCache()
+# Provider, model and pipeline come from MENULENS_PROVIDER / MENULENS_MODEL / MENULENS_PIPELINE.
+# Restaurant profiles (reasoned pipeline) are kept in the same cache file as estimates.
+estimator = Estimator(profiles=cache.profiles)
+# Reasoned answers are cached apart from direct ones, so switching pipeline never mixes them.
+CACHE_TAG = estimator.provider.name + ("" if estimator.pipeline == "direct" else f":{estimator.pipeline}")
 
 
 class ItemIn(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     description: str = Field(default="", max_length=500)
     section: str = Field(default="", max_length=80)
+    price: float | None = Field(default=None, gt=0, le=10_000)
 
 
 class RestaurantIn(BaseModel):
@@ -56,6 +61,8 @@ class RestaurantIn(BaseModel):
     cuisine: str = Field(default="", max_length=60)
     price_tier: int | None = Field(default=None, ge=1, le=4)
     sourcing_signals: list[str] = []
+    location: str = Field(default="", max_length=120)    # e.g. "Austin, TX, United States"
+    venue_type: str = Field(default="", max_length=40)   # e.g. "sit-down", "fast food"
 
 
 class EstimateRequest(BaseModel):
@@ -74,7 +81,8 @@ class ParseRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "provider": estimator.provider.name, "model": estimator.provider.model}
+    return {"ok": True, "provider": estimator.provider.name, "model": estimator.provider.model,
+            "pipeline": estimator.pipeline}
 
 
 @app.post("/v1/menu/parse")
@@ -89,7 +97,9 @@ def parse_menu(req: ParseRequest) -> dict:
 def to_menu_item(item: ItemIn, restaurant: RestaurantIn) -> MenuItem:
     return MenuItem(name=item.name, description=item.description, section=item.section,
                     restaurant=restaurant.name, cuisine=restaurant.cuisine,
-                    price_tier=restaurant.price_tier, sourcing_signals=restaurant.sourcing_signals)
+                    price_tier=restaurant.price_tier, sourcing_signals=restaurant.sourcing_signals,
+                    location=restaurant.location, venue_type=restaurant.venue_type,
+                    price=item.price)
 
 
 def estimate_body(est: Estimate) -> dict:
@@ -101,6 +111,7 @@ def estimate_body(est: Estimate) -> dict:
             "portion_assumption_g": est.portion_assumption_g,
             "range_widened": est.widened,
             "model": est.model,
+            **({"reasoning": est.reasoning} if est.reasoning else {}),
         },
         "disclaimer": "Estimated range, not a nutrition label.",
     }
@@ -134,7 +145,7 @@ def model_errors_as_http():
 @app.post("/v1/estimate")
 def estimate(req: EstimateRequest) -> dict:
     item = to_menu_item(req.item, req.restaurant)
-    key = cache.key(estimator.provider.name, item.to_prompt())
+    key = cache.key(CACHE_TAG, item.to_prompt())
     if cached := cache.get(key):
         status, body = cached
         if status != 200:
@@ -165,7 +176,7 @@ def estimate_batch(req: BatchRequest) -> dict:
     /v1/estimate gives.
     """
     items = [to_menu_item(i, req.restaurant) for i in req.items]
-    keys = [cache.key(estimator.provider.name, i.to_prompt()) for i in items]
+    keys = [cache.key(CACHE_TAG, i.to_prompt()) for i in items]
     results: list[dict | None] = [None] * len(items)
     for n, key in enumerate(keys):
         if cached := cache.get(key):
@@ -174,6 +185,7 @@ def estimate_batch(req: BatchRequest) -> dict:
                           if status == 200 else {"status": body["code"], **body, "cached": True})
 
     todo = [n for n, r in enumerate(results) if r is None]
+    had_profile = estimator.pipeline != "reasoned" or estimator.profiles.get(estimator.profile_key(items[0])) is not None
     if todo:
         with model_errors_as_http():
             answers = estimator.estimate_batch([items[n] for n in todo])
@@ -188,4 +200,8 @@ def estimate_batch(req: BatchRequest) -> dict:
                 results[n] = {"status": "insufficient_signal", **detail, "cached": False}
             else:
                 results[n] = {"status": "error", "message": "The estimator skipped this dish. Try again."}
-    return {"results": results, "model_requests": 1 if todo else 0}
+    response = {"results": results,
+                "model_requests": (1 + (not had_profile)) if todo else 0}
+    if estimator.pipeline == "reasoned" and (saved := estimator.profiles.get(estimator.profile_key(items[0]))):
+        response["profile"] = saved
+    return response

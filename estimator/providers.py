@@ -202,6 +202,11 @@ class MockProvider(Provider):
     name = "mock"
 
     def generate(self, system: str, prompt: str, schema: dict) -> tuple[dict, str]:
+        if "venue_type" in schema.get("properties", {}):  # a restaurant profile
+            return {"venue_type": "casual_dining", "cuisine": "mock cuisine",
+                    "cooking_style": "Mock profile for testing.", "region": "unknown",
+                    "portion_norm": "standard", "price_level": "moderate",
+                    "likely_chain": False, "notes": ""}, "mock"
         if "estimates" in schema.get("properties", {}):  # a batch: one fake answer per dish
             dishes = re.findall(r"^(\d+)\. (Item: .*)$", prompt, re.M)
             return {"estimates": [{"index": int(n), **self.generate(system, dish, {})[0]}
