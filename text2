@@ -1,0 +1,18 @@
+#include <iostream>
+#include <random>
+
+int main() {
+    std::mt19937 rng(std::random_device{}());
+    int target = std::uniform_int_distribution<int>(1, 100)(rng);
+    int guess = 0, tries = 0;
+
+    std::cout << "Guess a number between 1 and 100\n";
+    while (guess != target) {
+        std::cout << "> ";
+        if (!(std::cin >> guess)) return 0;
+        ++tries;
+        if (guess < target) std::cout << "Too low\n";
+        else if (guess > target) std::cout << "Too high\n";
+    }
+    std::cout << "Got it in " << tries << " tries!\n";
+}
