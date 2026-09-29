@@ -1,0 +1,12 @@
+{"id": "cmg-barbacoa-salad", "low": 240, "high": 360, "midpoint": 300, "band": "high", "widened": false, "model": "gemini-3.8-flash", "seconds": 8.5, "batch_size": 6}
+{"id": "cmg-sofritas-bowl", "low": 700, "high": 920, "midpoint": 810, "band": "high", "widened": false, "model": "gemini-3.8-flash", "seconds": 8.5, "batch_size": 6}
+{"id": "cmg-queso-side", "low": 200, "high": 350, "midpoint": 275, "band": "medium", "widened": false, "model": "gemini-3.8-flash", "seconds": 8.5, "batch_size": 6}
+{"id": "cmg-veggie-bowl", "low": 580, "high": 780, "midpoint": 680, "band": "high", "widened": false, "model": "gemini-3.8-flash", "seconds": 8.5, "batch_size": 6}
+{"id": "cmg-steak-quesadilla", "low": 700, "high": 950, "midpoint": 825, "band": "high", "widened": false, "model": "gemini-3.8-flash", "seconds": 8.5, "batch_size": 6}
+{"id": "cmg-chicken-salad", "low": 420, "high": 620, "midpoint": 520, "band": "high", "widened": false, "model": "gemini-3.8-flash", "seconds": 8.5, "batch_size": 6}
+{"id": "tcf-fried-mac", "low": 1200, "high": 1650, "midpoint": 1425, "band": "high", "widened": false, "model": "gemini-3.8-flash", "seconds": 12.9, "batch_size": 6}
+{"id": "tcf-thai-lettuce-wraps", "low": 950, "high": 1450, "midpoint": 1200, "band": "medium", "widened": false, "model": "gemini-3.8-flash", "seconds": 12.9, "batch_size": 6}
+{"id": "tcf-shepherds-pie", "low": 1300, "high": 1800, "midpoint": 1550, "band": "high", "widened": false, "model": "gemini-3.8-flash", "seconds": 12.9, "batch_size": 6}
+{"id": "tcf-factory-burrito", "low": 754, "high": 1496, "midpoint": 1125, "band": "low", "widened": true, "model": "gemini-3.8-flash", "seconds": 12.9, "batch_size": 6}
+{"id": "tcf-chicken-bellagio", "low": 1400, "high": 1950, "midpoint": 1675, "band": "high", "widened": false, "model": "gemini-3.8-flash", "seconds": 12.9, "batch_size": 6}
+{"id": "tcf-miso-salmon", "low": 1050, "high": 1500, "midpoint": 1275, "band": "high", "widened": false, "model": "gemini-3.8-flash", "seconds": 12.9, "batch_size": 6}

@@ -76,6 +76,7 @@ function accept(result) {
     const key = keyFor(item);
     if (state.items.has(key)) continue;
     const entry = { item, key, status: "pending", isNew: state.initialScanDone };
+    if (item.listed_calories) Object.assign(entry, listedResult(item.listed_calories)); // no model needed
     if (cache.has(key)) Object.assign(entry, cache.get(key));
     state.items.set(key, entry);
     if (entry.status === "pending") {
@@ -102,11 +103,14 @@ async function estimateGroup(entries) {
       name: item.name.slice(0, 120),
       description: item.description.slice(0, 500),
       section: item.section.slice(0, 80),
+      price: item.price || null,
     })),
     restaurant: {
       name: state.restaurant.name,
       cuisine: state.restaurant.cuisine,
       price_tier: state.restaurant.price_tier,
+      location: state.restaurant.location || "",
+      venue_type: state.restaurant.venue_type || "",
     },
   };
   let response;
@@ -247,6 +251,19 @@ function addSectionLabel(text) {
 }
 
 const confidenceLabel = (band) => band.charAt(0).toUpperCase() + band.slice(1);
+const rangeText = (low, high) => (low === high ? `${low} cal` : `${low}–${high} cal`);
+
+// The restaurant printed its own calorie count: show that, not an estimate.
+function listedResult({ low, high }) {
+  return {
+    status: "done",
+    result: {
+      calories: { low, high, midpoint: Math.round((low + high) / 2) },
+      confidence: { band: "listed" },
+      rationale: "The restaurant prints this calorie count on its menu, so MenuLens shows it as is instead of estimating.",
+    },
+  };
+}
 
 function renderCard(entry) {
   if (!entry.el) {
@@ -272,7 +289,7 @@ function renderCard(entry) {
     const band = result.confidence.band;
     const range = document.createElement("span");
     range.className = "range";
-    range.textContent = `${low}–${high} cal`;
+    range.textContent = rangeText(low, high);
     const badge = document.createElement("span");
     badge.className = `badge ${band}`;
     badge.textContent = confidenceLabel(band);
@@ -302,7 +319,9 @@ function renderCard(entry) {
   if (open) {
     const { low, high } = result.calories;
     detail.querySelector(".detail-head").textContent =
-      `${low}–${high} cal · ${confidenceLabel(result.confidence.band)} confidence`;
+      result.confidence.band === "listed"
+        ? `${rangeText(low, high)} · Listed by the restaurant`
+        : `${rangeText(low, high)} · ${confidenceLabel(result.confidence.band)} confidence`;
     detail.querySelector(".detail-body").textContent = result.rationale;
   }
 }

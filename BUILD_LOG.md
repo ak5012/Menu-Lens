@@ -17,6 +17,163 @@ Newest entries at the top.
 
 ---
 
+## 2026-09-28 (later) - Benchmarks, a better model, printed calories, location on the website
+
+### 1. Reasoned vs direct pipeline: direct stays
+
+Hidden names, `train`+`val` (29 verified dishes), groups of 20.
+
+| Model | Pipeline | Runs | Coverage | Typical miss |
+|---|---|---|---|---|
+| `gemini-3.1-flash-lite` | direct | 3 | 52%, 55%, 52% | 25%, 21%, 23% |
+| `gemini-3.1-flash-lite` | reasoned | 2 | 45%, 48% | 25%, 18% |
+| `gemini-3.5-flash-lite` | direct | 1 | 62% | 17% |
+| `gemini-3.5-flash-lite` | reasoned | 1 | 55% | 23% |
+
+- **Decision:** reasoned was below direct in all 3 runs, on 2 models, so `direct` stays
+  the default.
+- The reasoned code stays in place (`MENULENS_PIPELINE=reasoned`), to retest on
+  stronger models.
+- A likely reason: making a small model spell out assumed ingredients and portions leads
+  it to commit to them, and it misses more.
+
+### 2. Model sweep (`compare.py`, direct pipeline, groups of 20)
+
+| Model | Scored | Coverage | Typical miss |
+|---|---|---|---|
+| `gemini-3.6-flash` | 6/29 (model busy) | 67% | 9% |
+| `gemini-3.8-flash` | 11/29 (model busy) | 64% | 15% |
+| `gemini-3.5-flash-lite` | 29/29 | **62%** | 17% |
+| `gemini-3.1-flash-lite` | 29/29 | 48% | 25% |
+
+- **Decision:** `.env` now tries `gemini-3.5-flash-lite` first, then `3.1-flash-lite`.
+- The two "flash" models look better, but 6 and 11 dishes are too few to decide. Rerun
+  them when Google isn't overloaded.
+- Every model is still below the 80% coverage target.
+- `compare.py` gains `--batch` (default 20) and `--pipeline`. Its output file names
+  include those settings.
+
+### 3. Extension: price, printed calories, location, kind of place
+
+- `content.js`:
+  - Each dish's **price**: from schema.org `offers.price`, or the price on the page.
+  - **Calories the menu prints**: "650 Cal", "450-600 cal", "1,050 calories", or
+    schema.org `nutrition.calories`. These lines are no longer taken as descriptions.
+  - The restaurant's **location** from the schema.org address (city, region, country),
+    and the **kind of place** from its schema.org type (e.g. FastFoodRestaurant becomes
+    "fast food").
+- `sidepanel.js`:
+  - A dish with printed calories shows that number with a **Listed** badge and is **not
+    sent to the model**: exact, and no quota used.
+  - Everything else is sent with its price, plus the restaurant's location and kind of place.
+- **Tested** in headless Chrome with a stand-in API on port 8090:
+  - Schema.org chain page: 2 of 3 dishes were Listed, and only 1 was sent. The API
+    received `$11.99`, "Denver, CO, US" and "fast food".
+  - Plain page with "610 Cal" and "1,050 Cal": both Listed, and descriptions were correct.
+
+### 4. Server: `/v1/menu/parse` keeps prices and printed calories
+
+- `menu_parse.py` returns `price` and `listed_calories` for each dish.
+- A price or calorie count on a line of its own belongs to the dish above it.
+- Tested with "$14", "... 19", "24.00" on its own line, "| 610 Cal | $12.50",
+  "1,050 Cal" on its own line, and "(450-600 cal) 7.99".
+- Two bugs found and fixed: "... 19" wasn't read as a price, and "Kids Meal ( )" kept
+  empty brackets.
+
+### 5. Website (Lovable, 2.8 credits)
+
+- New optional **Location** field.
+- `location` and `venue_type` are sent with every request, plus each dish's `price`.
+- Dishes with printed calories show "Listed by restaurant" and are not sent for an
+  estimate. Cards with one number show "450 cal".
+- Not tested against the server: the preview needs a Lovable login.
+
+### Mistakes
+
+- The scratch test folder had been emptied, so one test command ran in `extension/`.
+  It left one stray file, `listed.js`, which was deleted. The extension's settings were
+  checked and are unchanged.
+- The test setup is now written as files, with absolute paths.
+
+---
+
+## 2026-09-28 - Reasoned pipeline, step 1 (server): restaurant profile, then per-dish reasoning
+
+**Goal:** before giving a range, the model should consider the kind of restaurant, the
+likely ingredients, the cuisine, the location, and other factors.
+
+**Design:** separate model calls per step would cost about 4 requests per dish, which
+uses up the free tier on one menu. Free tiers count requests, not reasoning, so the
+reasoning happens inside requests that are already made:
+- **Step 1:** a restaurant profile, 1 request per restaurant, cached.
+- **Step 2:** the existing groups of 20 dishes, now with required reasoning fields
+  written before the numbers.
+- A 97-dish menu is 6 requests instead of 5.
+
+**Status:**
+- Built and tested with fake models.
+- **Not benchmarked yet:** every Gemini model returned 503 "high demand", or timed out,
+  on 2026-09-28.
+- Off by default. Turn it on with `MENULENS_PIPELINE=reasoned`.
+- `runs/reasoned1-3.1-flash-lite.jsonl` is a partial run (6 of 30); finish it with `--resume`.
+
+### What changed
+
+- **`estimator/reasoning.py`** (new):
+  - `PROFILE_SYSTEM` and `PROFILE_SCHEMA` produce a `RestaurantProfile`:
+    - `venue_type`, one of 12 (fast food, fast casual, cafe/bakery, diner, family style,
+      casual dining, fine dining, bar/pub, buffet, food truck, dessert shop, unknown)
+    - `cuisine` (specific), `cooking_style`, `region`
+    - `portion_norm` (small, standard, large or very large, compared with US servings)
+    - `price_level`, `likely_chain`, `notes`
+    - Out-of-range values fall back to unknown or standard.
+  - `REASONED_SYSTEM` and `REASONED_SCHEMA` require, per dish, `likely_ingredients`,
+    `cooking_method`, `portion_basis` and `calorie_drivers` **before** the range fields.
+    Inferred ingredients widen the range and stay out of the user-facing rationale.
+  - `build_profile()`: if the profile answer is garbled, it uses an unknown profile, so
+    the dishes still get estimated. Rate limits and outages are raised.
+- **`estimator/estimator.py`**:
+  - `MenuItem` has optional `location`, `venue_type` and `price`. Each prompt line
+    appears only when the field is set, so direct prompts are unchanged (tested).
+  - `Estimator(pipeline=..., profiles=...)`: pipeline `direct` or `reasoned`, from
+    `MENULENS_PIPELINE`.
+  - `profile_for()` builds each profile once and keeps it, keyed by provider and
+    restaurant.
+  - `Estimate.reasoning` holds the per-dish reasoning.
+- **`estimator/cache.py`**:
+  - New `profiles` table in `cache.db`, with the same 30-day age limit.
+  - The path is now read when the cache opens, so tests can point it at a temporary file.
+- **`estimator/server.py`**:
+  - `restaurant.location` (up to 120 characters), `restaurant.venue_type` (up to 40) and
+    `items[].price` (above 0, up to 10,000) are accepted.
+  - Reasoned answers are cached separately (`gemini:reasoned`).
+  - The batch response adds `profile`, and `model_requests` can be 2 on a restaurant's
+    first request.
+  - `basis.reasoning` is included per dish, and `/health` shows the pipeline.
+- **`estimator/providers.py`**: `MockProvider` answers profile requests.
+- **`estimator/bench.py`**: `--pipeline direct|reasoned`. Reasoned runs add the location
+  "United States"; direct prompts are left exactly as before.
+- **`estimator/.env`**: a commented `# MENULENS_PIPELINE=reasoned` line.
+
+### Tested (fake models, temporary cache)
+
+- Profile, then dishes: 2 requests. The next group reuses the profile: 1 request. All
+  cached: 0.
+- The dish prompt contains the profile, location, kind of place and prices.
+- A garbled profile still gives estimates. A rate limit on the profile reaches the caller.
+- Bad price or location inputs get 422.
+- A regression check of the direct pipeline, parse, cache and bench found no changes.
+
+**Mistake caught and fixed:**
+- A test wrote a mock profile and 4 mock estimates into the real `cache.db`. The
+  cache's default path had been bound too early.
+- Profiles were not yet keyed by provider, so the mock profile could have been reused
+  by Gemini.
+- Fixes: the rows were deleted (the cache had nothing else in it), profiles are now keyed
+  by provider, and the path is read when the cache opens.
+
+---
+
 ## 2026-09-26 - Making the free Gemini quota last: group requests, fallback models, cache
 
 **Problem:** the extension kept saying "busy". There were two causes:

@@ -89,7 +89,8 @@ def health() -> dict:
 def parse_menu(req: ParseRequest) -> dict:
     """Split pasted menu text into dishes. No model call, so it's free and instant."""
     items = parse_menu_text(req.text)
-    return {"items": [{"name": i.name, "description": i.description, "section": i.section}
+    return {"items": [{"name": i.name, "description": i.description, "section": i.section,
+                       "price": i.price, "listed_calories": i.listed_calories}
                       for i in items],
             "truncated": len(items) >= MAX_ITEMS}
 

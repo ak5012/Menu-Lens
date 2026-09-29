@@ -199,6 +199,7 @@ button { font: inherit; color: inherit; }
 .badge.high { background: var(--confidence-high-soft); color: var(--confidence-high); }
 .badge.medium { background: var(--confidence-medium-soft); color: var(--confidence-medium); }
 .badge.low { background: var(--confidence-low-soft); color: var(--confidence-low); }
+.badge.listed { background: var(--primary); color: var(--primary-foreground); }
 
 .tag { font-size: 12px; }
 

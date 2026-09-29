@@ -1,0 +1,6 @@
+{"id": "og-lasagna-classico", "low": 740, "high": 1110, "midpoint": 925, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 23.4, "batch_size": 6}
+{"id": "og-minestrone", "low": 120, "high": 220, "midpoint": 170, "band": "high", "widened": false, "model": "gemini-3.6-flash", "seconds": 23.4, "batch_size": 6}
+{"id": "og-chicken-parm", "low": 880, "high": 1320, "midpoint": 1100, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 23.4, "batch_size": 6}
+{"id": "og-shrimp-scampi", "low": 640, "high": 960, "midpoint": 800, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 23.4, "batch_size": 6}
+{"id": "og-eggplant-parm", "low": 800, "high": 1200, "midpoint": 1000, "band": "medium", "widened": false, "model": "gemini-3.6-flash", "seconds": 23.4, "batch_size": 6}
+{"id": "og-five-cheese-ziti", "low": 840, "high": 1260, "midpoint": 1050, "band": "medium", "widened": true, "model": "gemini-3.6-flash", "seconds": 23.4, "batch_size": 6}

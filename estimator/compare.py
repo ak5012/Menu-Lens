@@ -77,6 +77,9 @@ def run_one(model: str, args, out: Path) -> int:
         cmd += ["--limit", str(args.limit)]
     if args.rpm is not None:
         cmd += ["--rpm", str(args.rpm)]
+    if args.batch > 1:
+        cmd += ["--batch", str(args.batch)]
+    cmd += ["--pipeline", args.pipeline]
     print("\n" + "=" * 78)
     print(f"  MODEL: {model}")
     print("=" * 78, flush=True)
@@ -145,6 +148,9 @@ def main() -> int:
                     help="use real chain and dish names (measures memorisation, not estimation)")
     ap.add_argument("--limit", type=int)
     ap.add_argument("--rpm", type=int)
+    ap.add_argument("--batch", type=int, default=20,
+                    help="dishes per request (default 20: about 4 requests per model on train,val)")
+    ap.add_argument("--pipeline", choices=["direct", "reasoned"], default="direct")
     ap.add_argument("--list-models", action="store_true")
     ap.add_argument("--report", type=Path, default=HERE.parent / "MODEL_COMPARISON.md")
     args = ap.parse_args()
@@ -166,7 +172,8 @@ def main() -> int:
     skipped: list[tuple[str, str]] = []
 
     for model in models:
-        out = RUNS / f"{slug(args.split)}-{tag}-{slug(model)}.jsonl"
+        variant = "" if args.batch <= 1 and args.pipeline == "direct" else f"-b{args.batch}-{args.pipeline}"
+        out = RUNS / f"{slug(args.split)}-{tag}{variant}-{slug(model)}.jsonl"
         try:
             code = run_one(model, args, out)
         except KeyboardInterrupt:

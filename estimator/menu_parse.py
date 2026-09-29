@@ -9,8 +9,10 @@ Menus pasted from a website or a PDF usually look like one of these:
     Braised veal shank, saffron risotto, gremolata
 
 So each line is a section heading, a dish ("name - description"), a dish name alone,
-or the description of the dish just above it. Prices are dropped: they carry no
-calorie information beyond the restaurant's price tier.
+or the description of the dish just above it. Each dish keeps its price (a hint at
+portion size), and any calories the menu prints ("650 Cal"), which are shown as listed
+instead of estimated. A price or calorie count on a line of its own belongs to the dish
+above it.
 """
 
 from __future__ import annotations
@@ -20,6 +22,9 @@ from dataclasses import dataclass
 
 MAX_ITEMS = 100
 
+# "650 Cal", "450-600 cal", "1,050 calories", "320 kcal"
+CALORIES = re.compile(r"(\d{1,2},?\d{3}|\d{2,4})\s*(?:[-–]\s*(\d{1,2},?\d{3}|\d{2,4})\s*)?"
+                      r"(?:k?cals?|calories)\b\.?", re.I)
 PRICE = re.compile(r"(?:[.…·\s]*)(?:[$€£]\s*)?\d{1,3}(?:[.,]\d{2})?\s*$")
 BULLET = re.compile(r"^\s*(?:[-*•·]|\d{1,2}[.)])\s+")
 # The first separator between a dish name and its description.
@@ -32,6 +37,28 @@ class ParsedItem:
     name: str
     description: str = ""
     section: str = ""
+    price: float | None = None
+    listed_calories: dict | None = None  # {"low": 450, "high": 600}, as printed on the menu
+
+
+def _calories(line: str) -> tuple[dict | None, str]:
+    """Calories printed in the line, and the line without them."""
+    m = CALORIES.search(line)
+    if not m:
+        return None, line
+    low = int(m.group(1).replace(",", ""))
+    high = int(m.group(2).replace(",", "")) if m.group(2) else low
+    rest = re.sub(r"\(\s*\)|\[\s*\]", "", line[:m.start()] + " " + line[m.end():]).strip(" ,|·()")
+    return ({"low": low, "high": high} if 10 <= low <= high <= 5000 else None), rest
+
+
+def _price(line: str) -> float | None:
+    m = PRICE.search(line.strip())
+    if not m:
+        return None
+    number = re.search(r"\d{1,3}(?:[.,]\d{2})?", m.group())
+    value = float(number.group().replace(",", ".")) if number else 0
+    return value if 0 < value <= 10_000 else None
 
 
 def _clean(line: str) -> str:
@@ -55,7 +82,13 @@ def parse_menu_text(text: str) -> list[ParsedItem]:
     seen: set[str] = set()
 
     for raw in text.splitlines():
+        calories, raw = _calories(raw)
+        price = _price(raw)
         if not raw.strip() or PRICE_ONLY.match(raw):
+            # A line holding only a price or a calorie count belongs to the dish above.
+            if items:
+                items[-1].price = items[-1].price or price
+                items[-1].listed_calories = items[-1].listed_calories or calories
             continue
         line = _clean(raw)
         if not re.search(r"[A-Za-z]", line):
@@ -69,6 +102,8 @@ def parse_menu_text(text: str) -> list[ParsedItem]:
             name, description = parts[0].strip(), parts[1].strip()
         elif items and not items[-1].description and _looks_like_description(line):
             items[-1].description = line  # the description line under a name-only dish
+            items[-1].price = items[-1].price or price
+            items[-1].listed_calories = items[-1].listed_calories or calories
             continue
         else:
             name, description = line, ""
@@ -76,7 +111,8 @@ def parse_menu_text(text: str) -> list[ParsedItem]:
         if not 2 <= len(name) <= 80 or name.lower() in seen:
             continue
         seen.add(name.lower())
-        items.append(ParsedItem(name=name, description=description[:300], section=section))
+        items.append(ParsedItem(name=name, description=description[:300], section=section,
+                                price=price, listed_calories=calories))
         if len(items) >= MAX_ITEMS:
             break
     return items

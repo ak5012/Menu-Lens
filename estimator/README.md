@@ -57,6 +57,21 @@ stretches this in three ways:
 
 Benchmark group requests with `python bench.py --hide-names --split train,val --batch 20 -o out.jsonl`.
 
+## Two pipelines
+
+Set with `MENULENS_PIPELINE` in `.env`, or `--pipeline` for `bench.py`.
+
+| Pipeline | Requests per menu | What the model does |
+|---|---|---|
+| `direct` (default) | 1 per 20 dishes | Dish plus restaurant, straight to a range. |
+| `reasoned` | 1 per restaurant (cached), plus 1 per 20 dishes | **Step 1** (`reasoning.py`): profiles the restaurant: kind of place, specific cuisine and cooking style, region and what it means for portions, price level, likely chain. **Step 2:** for each dish, writes likely ingredients, cooking method, portion basis and calorie drivers *before* the range. |
+
+The API accepts optional context both pipelines use when present: `restaurant.location`,
+`restaurant.venue_type`, and `items[].price`. In `reasoned` mode, `/v1/estimate/batch`
+returns the restaurant `profile`, and each dish's `basis.reasoning`.
+
+Compare them: `python bench.py --hide-names --split train,val --batch 20 --pipeline reasoned -o out.jsonl`.
+
 ## What the code guarantees, whatever the model says
 
 | Rule | Why |

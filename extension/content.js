@@ -3,6 +3,8 @@
 //   1. schema.org Menu data (JSON-LD), which many restaurant sites publish for search engines;
 //   2. the page itself: each price on the page, and the dish name printed next to it.
 // It then watches the page, so dishes that load later (scrolling, tabs) are reported too.
+// Alongside each dish it reports the price and any calories the menu prints, and for the
+// restaurant its location and kind of place when the page's structured data says.
 
 (() => {
   if (window.__menulens) return;
@@ -14,7 +16,35 @@
   const NOT_A_DISH = /^(add|add to (cart|order|bag)|order( now)?|sold out|menu|view|select|customi[sz]e|popular|new)$/i;
   const SKIP = "script,style,noscript,template,svg,nav,footer,[aria-hidden='true']";
 
+  // "650 Cal", "450-600 cal", "1,050 calories", "320 kcal"
+  const CALORIES = /(\d{1,2},?\d{3}|\d{2,4})\s*(?:[-–]\s*(\d{1,2},?\d{3}|\d{2,4})\s*)?(?:k?cals?|calories)\b/i;
+  // schema.org types that say what kind of place this is
+  const VENUE_TYPES = { FastFoodRestaurant: "fast food", CafeOrCoffeeShop: "cafe", BarOrPub: "bar or pub",
+    Bakery: "bakery", IceCreamShop: "dessert shop", Brewery: "brewery", Winery: "winery" };
+
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+
+  // Calories the menu itself prints, as { low, high }; null if none or implausible.
+  function caloriesIn(text) {
+    const m = String(text || "").match(CALORIES);
+    if (!m) return null;
+    const low = parseInt(m[1].replace(",", ""), 10);
+    const high = m[2] ? parseInt(m[2].replace(",", ""), 10) : low;
+    return low >= 10 && high <= 5000 && high >= low ? { low, high } : null;
+  }
+
+  function priceIn(value) {
+    const n = parseFloat(String(value ?? "").replace(/[^\d.,]/g, "").replace(",", "."));
+    return n > 0 && n <= 10000 ? n : null;
+  }
+
+  function placeFrom(address) {
+    if (!address) return "";
+    if (typeof address === "string") return clean(address);
+    const a = [].concat(address)[0] || {};
+    const country = typeof a.addressCountry === "object" ? a.addressCountry?.name : a.addressCountry;
+    return [a.addressLocality, a.addressRegion, country].map(clean).filter(Boolean).join(", ");
+  }
   const types = (node) => [].concat(node?.["@type"] || []).map(String);
 
   // ---------- 1. schema.org JSON-LD ----------
@@ -30,10 +60,17 @@
         const cuisine = [].concat(node.servesCuisine || [])[0];
         restaurant.cuisine ||= clean(cuisine);
         restaurant.priceRange ||= clean(node.priceRange);
+        restaurant.location ||= placeFrom(node.address);
+        restaurant.venue_type ||= t.map((x) => VENUE_TYPES[x]).find(Boolean) || "";
       }
       if (t.includes("MenuSection")) section = clean(node.name) || section;
       if (t.includes("MenuItem") && node.name) {
-        items.push({ name: clean(node.name), description: clean(node.description), section: section || "" });
+        const offer = [].concat(node.offers || [])[0] || {};
+        items.push({
+          name: clean(node.name), description: clean(node.description), section: section || "",
+          price: priceIn(offer.price),
+          listed_calories: caloriesIn(node.nutrition?.calories) || caloriesIn(node.description),
+        });
       }
       for (const [key, value] of Object.entries(node)) {
         if (key !== "@context" && value && typeof value === "object") walk(value, section);
@@ -122,10 +159,12 @@
       const headingTexts = new Set(headings.map((h) => h.text));
       // A description is any other line that isn't a price, a badge, or a section heading.
       const description = lines.find((l) => l !== name && stripCode(l) !== name && l.length > 3
-        && !countPrices(" " + l + " ") && !headingTexts.has(l) && !NOT_A_DISH.test(l)) || "";
-      const price = (priceEl.innerText.match(/\d{1,3}(?:[.,]\d{2})?/) || [])[0];
-      if (price) prices.push(parseFloat(price.replace(",", ".")));
-      items.push({ name, description: description.slice(0, 300), section });
+        && !countPrices(" " + l + " ") && !headingTexts.has(l) && !NOT_A_DISH.test(l)
+        && !caloriesIn(l)) || "";
+      const price = priceIn((priceEl.innerText.match(/\d{1,3}(?:[.,]\d{2})?/) || [])[0]);
+      if (price) prices.push(price);
+      items.push({ name, description: description.slice(0, 300), section, price,
+                   listed_calories: caloriesIn(lines.filter((l) => l !== name).join(" ")) });
     }
     return { items: items.length >= MIN_DOM_ITEMS ? items : [], prices };
   }
@@ -167,6 +206,8 @@
         name: (ld.restaurant.name || siteName()).slice(0, 120),
         cuisine: (ld.restaurant.cuisine || "").slice(0, 60),
         price_tier: tierFrom(ld.restaurant.priceRange, page.prices),
+        location: (ld.restaurant.location || "").slice(0, 120),
+        venue_type: (ld.restaurant.venue_type || "").slice(0, 40),
       },
       items,
     };

@@ -37,11 +37,18 @@ After editing any file here, click **Reload** on the MenuLens card in `edge://ex
 Dishes that load later (scrolling, clicking a menu tab) show up under "Found further
 down the page".
 
+## Calories the menu already prints
+
+If a dish's calories are on the page ("650 Cal", "450-600 cal", or schema.org
+`nutrition.calories`), the panel shows that number with a **Listed** badge and doesn't ask
+the estimator. It's exact, and it costs no quota. US chains with 20 or more locations must
+print calories, so this covers many chain menus.
+
 ## Privacy
 
 - MenuLens reads a page only after you click its icon on that page.
-- It sends only the dish name, description, section, restaurant name, cuisine and
-  price tier to the MenuLens API.
+- It sends only the dish name, description, section and price, and the restaurant's name,
+  cuisine, price tier, location and kind of place, to the MenuLens API.
 - It does not collect browsing history or personal data.
 
 ## How it uses the free quota
